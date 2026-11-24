@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PlantModel>
+  <Equipment ID="e1" TagName="V-200" ComponentClass="Vessel">
+    <Nozzle ID="e1n1" TagName="N1" ComponentClass="Nozzle"/>
+  </Equipment>
+  <Equipment ID="e2" TagName="P-201" ComponentClass="CentrifugalPump">
+    <Nozzle ID="e2n1" TagName="S" ComponentClass="Nozzle"/>
+    <Nozzle ID="e2n2" TagName="D" ComponentClass="Nozzle"/>
+  </Equipment>
+  <Equipment ID="e3" TagName="E-201" ComponentClass="HeatExchanger">
+    <Nozzle ID="e3n1" TagName="T1" ComponentClass="Nozzle"/>
+  </Equipment>
+  <PipingNetworkSystem ID="s1">
+    <PipingNetworkSegment ID="seg1" TagName="L-2001">
+      <GenericAttributes>
+        <GenericAttribute Name="NominalDiameterRepresentation" Value="DN150"/>
+        <GenericAttribute Name="PipingClassCodeAssignmentClass" Value="B2"/>
+      </GenericAttributes>
+      <Connection FromID="e1n1" ToID="e2n1"/>
+    </PipingNetworkSegment>
+    <PipingNetworkSegment ID="seg2" TagName="L-2002">
+      <GenericAttributes>
+        <GenericAttribute Name="NominalDiameterNumericalValueRepresentation" Value="100" Units="mm"/>
+      </GenericAttributes>
+      <Connection FromID="e2n2" ToID="e3n1"/>
+    </PipingNetworkSegment>
+  </PipingNetworkSystem>
+</PlantModel>

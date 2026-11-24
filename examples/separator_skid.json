@@ -1,0 +1,19 @@
+{
+  "name": "Separator skid (synthetic example)",
+  "standard": "generic",
+  "equipment": [
+    {"id": "V-100", "kind": "vessel_horizontal", "size": [8000, 2500, 2500]},
+    {"id": "P-101A", "kind": "pump"},
+    {"id": "P-101B", "kind": "pump"},
+    {"id": "E-101", "kind": "exchanger"},
+    {"id": "V-102", "kind": "vessel_vertical", "size": [2000, 2000, 6000]}
+  ],
+  "lines": [
+    {"id": "L-1001", "from": "V-100", "to": "P-101A", "nps": 6, "spec": "A1", "service": "crude", "valves": ["gate"]},
+    {"id": "L-1002", "from": "V-100", "to": "P-101B", "nps": 6, "spec": "A1", "service": "crude", "valves": ["gate"]},
+    {"id": "L-1003", "from": "P-101A", "to": "E-101", "nps": 4, "spec": "A1", "service": "crude", "valves": ["check", "gate"]},
+    {"id": "L-1004", "from": "P-101B", "to": "E-101", "nps": 4, "spec": "A1", "service": "crude", "valves": ["check", "gate"]},
+    {"id": "L-1005", "from": "E-101", "to": "V-102", "nps": 4, "spec": "A1", "service": "crude"},
+    {"id": "L-1006", "from": "V-102", "to": "V-100", "nps": 3, "spec": "A1", "service": "gas"}
+  ]
+}
