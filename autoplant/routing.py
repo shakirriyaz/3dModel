@@ -1,12 +1,12 @@
 """Orthogonal 3D pipe router (A* on a voxel grid) with bend penalty, minimum leg length
 between bends, equipment/pipe clearances, rack-level preference and headroom avoidance."""
 from __future__ import annotations
-import heapq
 import math
 import numpy as np
 from .model import Project, Route, DIRS, split_ref
 from .catalog import od, elbow_takeoff, valve_ftf
 from .standards import Profile
+from ._astar import astar, DX, DY, DZ, OPP as OPPA
 
 DV = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]
 DNAME = {"+x": 0, "-x": 1, "+y": 2, "-y": 3, "+z": 4, "-z": 5}
@@ -80,16 +80,30 @@ class Router:
         hi = [max(a[i], b[i]) for i in range(3)]
         arr[self.g.box_slices(lo, hi, infl)] = True
 
-    def _blocked(self, ln, routed_pts: dict[str, list]):
+    def _blocked(self, ln, routed_pts, w0, w1):
+        """Blocked-cell array for the window [w0, w1) (cell indices, x/y windowed, full z)."""
         g, s = self.g, self.std
         r = od(ln.nps) / 2
         half = g.p * 0.5
-        arr = np.zeros(g.n, dtype=bool)
+        shape = (w1[0] - w0[0], w1[1] - w0[1], g.n[2])
+        arr = np.zeros(shape, dtype=bool)
+        wlo = (g.o[0] + w0[0] * g.p - g.p, g.o[1] + w0[1] * g.p - g.p)
+        whi = (g.o[0] + w1[0] * g.p + g.p, g.o[1] + w1[1] * g.p + g.p)
+
+        def paint(lo, hi, infl):
+            if hi[0] + infl < wlo[0] or lo[0] - infl > whi[0] or hi[1] + infl < wlo[1] or lo[1] - infl > whi[1]:
+                return
+            sl = g.box_slices(lo, hi, infl)
+            xs = slice(max(sl[0].start - w0[0], 0), min(sl[0].stop - w0[0], shape[0]))
+            ys = slice(max(sl[1].start - w0[1], 0), min(sl[1].stop - w0[1], shape[1]))
+            if xs.start < xs.stop and ys.start < ys.stop:
+                arr[xs, ys, sl[2]] = True
+
         kz = math.ceil((r + s.grade_clearance - g.o[2]) / g.p)
         arr[:, :, :max(kz, 0)] = True       # pipe soffit must clear grade
         for e in self.prj.equipment:
             lo, hi = e.box()
-            arr[g.box_slices(lo, hi, r + s.equip_clearance + half)] = True
+            paint(lo, hi, r + s.equip_clearance + half)
         for other in self.prj.lines:
             if other.id == ln.id:
                 continue
@@ -98,102 +112,68 @@ class Router:
             pts = routed_pts.get(other.id)
             if pts is None:       # reserve nozzle stubs of lines not yet routed
                 (p0, p1, _, _), (q0, q1, _, _), _ = self.stubs[other.id]
-                self._paint_segment(arr, p0, p1, infl)
-                self._paint_segment(arr, q0, q1, infl)
+                segs = [(p0, p1), (q0, q1)]
             else:
-                for a, b in zip(pts, pts[1:]):
-                    self._paint_segment(arr, a, b, infl)
+                segs = list(zip(pts, pts[1:]))
+            for a, b in segs:
+                paint(tuple(min(a[i], b[i]) for i in range(3)), tuple(max(a[i], b[i]) for i in range(3)), infl)
         return arr
 
     # ------------------------------------------------------------------
+    MAX_STATES = 90_000_000
+
     def route_line(self, ln, routed_pts) -> Route:
         g, s = self.g, self.std
         (p0, s0, dn0, L0), (p1, s1, dn1, L1), r = self.stubs[ln.id]
-        arr = self._blocked(ln, routed_pts)
         start, goal = g.cell(s0), g.cell(s1)
-        for c in (start, goal):
-            arr[c] = False
-        nx, ny, nz = g.n
         for c in (start, goal):
             if not all(0 <= c[i] < g.n[i] for i in range(3)):
                 return Route(line_id=ln.id, status="failed", note="nozzle stub outside grid")
-        blocked = bytearray(arr.tobytes())
         p = g.p
         min_leg = 2 * elbow_takeoff(ln.nps) + s.weld_gap
         R = max(1, math.ceil(min_leg / p))
-        d0 = DNAME[dn0]
-        want = OPP[DNAME[dn1]]
+        d0, want = DNAME[dn0], OPP[DNAME[dn1]]
         run0 = min(R, math.ceil(L0 / p))
         goal_run = max(0, math.ceil((min_leg - L1) / p))
-        # per-level horizontal cost factors
-        zf = []
-        for iz in range(nz):
+        zf = np.ones(g.n[2])
+        for iz in range(g.n[2]):
             z = g.o[2] + iz * p
-            f = 1.0
             if s.grade_band < z < s.headroom:
-                f = 4.0
+                zf[iz] = 4.0
             elif self.prj.rack_elevation is not None and abs(z - self.prj.rack_elevation) < p * 0.5:
-                f = 0.7
-            zf.append(f)
-        fmin = min(zf)
-        bend = s.bend_penalty
-        sy, sz_ = nz * ny, nz
-        gx, gy, gz = goal
-
-        def h(x, y, z):
-            return (abs(x - gx) + abs(y - gy) + abs(z - gz)) * p * fmin
-
-        heap = [(h(*start), 0, 0.0, start[0], start[1], start[2], d0, run0)]
-        best = {(start, d0, run0): 0.0}
-        parent = {}
-        cnt = 0
-        expansions = 0
-        while heap:
-            f, _, gc, x, y, z, d, run = heapq.heappop(heap)
-            key = ((x, y, z), d, run)
-            if best.get(key, 1e18) < gc - 1e-9:
+                zf[iz] = 0.7
+        last = None
+        for margin_mm in (8000, 20000, 60000, None):
+            if margin_mm is None:
+                m = max(g.n[0], g.n[1])
+            else:
+                m = int(margin_mm / p)
+            while True:
+                w0 = (max(min(start[0], goal[0]) - m, 0), max(min(start[1], goal[1]) - m, 0))
+                w1 = (min(max(start[0], goal[0]) + m + 1, g.n[0]), min(max(start[1], goal[1]) + m + 1, g.n[1]))
+                nx, ny, nz = w1[0] - w0[0], w1[1] - w0[1], g.n[2]
+                if nx * ny * nz * 6 * (R + 1) <= self.MAX_STATES or m <= 4:
+                    break
+                m = int(m * 0.85)          # shrink to the memory budget
+            if last == (w0, w1):
                 continue
-            if (x, y, z) == goal and d == want and run >= goal_run:
-                return self._finish(ln, key, parent, p0, p1, s0, s1, r, g)
-            expansions += 1
-            if expansions > 1_500_000:
-                break
-            for nd in range(6):
-                if nd == OPP[d]:
-                    continue
-                if nd == d:
-                    nrun = min(run + 1, R)
-                    extra = 0.0
-                else:
-                    if run < R:
-                        continue
-                    nrun = 1
-                    extra = bend
-                dx, dy, dz = DV[nd]
-                X, Y, Z = x + dx, y + dy, z + dz
-                if X < 0 or Y < 0 or Z < 0 or X >= nx or Y >= ny or Z >= nz:
-                    continue
-                if blocked[(X * ny + Y) * nz + Z]:
-                    continue
-                step = p * (zf[Z] if nd < 4 else 1.0)
-                ng = gc + step + extra
-                nk = ((X, Y, Z), nd, nrun)
-                if ng < best.get(nk, 1e18) - 1e-9:
-                    best[nk] = ng
-                    parent[nk] = key
-                    cnt += 1
-                    heapq.heappush(heap, (ng + h(X, Y, Z), cnt, ng, X, Y, Z, nd, nrun))
+            last = (w0, w1)
+            arr = self._blocked(ln, routed_pts, w0, w1)
+            ls = (start[0] - w0[0], start[1] - w0[1], start[2])
+            lg = (goal[0] - w0[0], goal[1] - w0[1], goal[2])
+            arr[ls] = False
+            arr[lg] = False
+            blocked = np.ascontiguousarray(arr.reshape(-1).astype(np.uint8))
+            path, _ = astar(blocked, nx, ny, nz, ls[0], ls[1], ls[2], d0, run0, lg[0], lg[1], lg[2], want,
+                            R, goal_run, float(p), float(s.bend_penalty), zf, 1.05,
+                            4_000_000,
+                            DX, DY, DZ, OPPA)
+            if len(path):
+                cells = [((int(a) + w0[0], int(b) + w0[1], int(c)), int(d), 0) for a, b, c, d in path]
+                return self._finish(ln, cells, p0, p1, s0, s1, r, g)
         return Route(line_id=ln.id, status="failed", note="no feasible path on grid")
 
-    def _finish(self, ln, key, parent, p0, p1, s0, s1, r, g):
-        cells = []
-        k = key
-        while True:
-            cells.append(k)
-            if k not in parent:
-                break
-            k = parent[k]
-        cells.reverse()
+    def _finish(self, ln, cells, p0, p1, s0, s1, r, g):
         # corners of the grid path
         corners = [cells[0][0]]
         for a, b in zip(cells, cells[1:]):
@@ -253,32 +233,63 @@ class Router:
         return res
 
     # ------------------------------------------------------------------
-    def route_all(self, max_rounds: int = 4) -> dict[str, Route]:
+    def _dist_to_route(self, pts, q):
+        best = 1e18
+        for a, b in zip(pts, pts[1:]):
+            lo = [min(a[i], b[i]) for i in range(3)]
+            hi = [max(a[i], b[i]) for i in range(3)]
+            d2 = sum(max(lo[i] - q[i], 0, q[i] - hi[i]) ** 2 for i in range(3))
+            best = min(best, d2)
+        return math.sqrt(best)
+
+    def route_all(self, rounds: int = 3) -> dict[str, Route]:
+        """Initial pass (big pipes first), then rip-up & reroute for failed lines:
+        remove the k nearest routed lines, route the failed one first, reroute the removed."""
+        by_id = {l.id: l for l in self.prj.lines}
         order = sorted(self.prj.lines, key=lambda l: (-od(l.nps), l.id))
-        failed_first: list[str] = []
-        best: dict[str, Route] = {}
-        best_fail = None
-        for rnd in range(max_rounds):
-            ids = failed_first + [l.id for l in order if l.id not in failed_first]
-            by_id = {l.id: l for l in self.prj.lines}
-            routed_pts: dict[str, list] = {}
-            routes: dict[str, Route] = {}
-            fails = []
-            for lid in ids:
-                rt = self.route_line(by_id[lid], routed_pts)
-                routes[lid] = rt
-                if rt.status == "routed":
-                    routed_pts[lid] = rt.points
-                else:
-                    fails.append(lid)
-            if best_fail is None or len(fails) < best_fail:
-                best, best_fail = routes, len(fails)
-            if not fails:
+        routes: dict[str, Route] = {}
+        pts: dict[str, list] = {}
+        for ln in order:
+            routes[ln.id] = self.route_line(ln, pts)
+            if routes[ln.id].status == "routed":
+                pts[ln.id] = routes[ln.id].points
+        for _ in range(rounds):
+            failed = [lid for lid, r in routes.items() if r.status != "routed"]
+            if not failed:
                 break
-            failed_first = fails + [i for i in failed_first if i not in fails]
-        self.routes = best
+            progress = False
+            for fid in failed:
+                (a, _, _, _), (b, _, _, _), _ = self.stubs[fid]
+                near = sorted(pts, key=lambda l: min(self._dist_to_route(pts[l], a), self._dist_to_route(pts[l], b)))
+                for k in (2, 5, 10, 20):
+                    rip = near[:k]
+                    if not rip:
+                        break
+                    snap_pts, snap_routes = dict(pts), dict(routes)
+                    for l in rip:
+                        pts.pop(l)
+                    rt = self.route_line(by_id[fid], pts)
+                    ok = rt.status == "routed"
+                    if ok:
+                        routes[fid], pts[fid] = rt, rt.points
+                        for l in sorted(rip, key=lambda l: (-od(by_id[l].nps), l)):
+                            r2 = self.route_line(by_id[l], pts)
+                            routes[l] = r2
+                            if r2.status == "routed":
+                                pts[l] = r2.points
+                            else:
+                                ok = False
+                                break
+                    if ok:
+                        progress = True
+                        break
+                    pts.clear(); pts.update(snap_pts)
+                    routes.clear(); routes.update(snap_routes)
+            if not progress:
+                break
+        self.routes = routes
         self._place_valves()
-        return best
+        return routes
 
     def _place_valves(self):
         by_id = {l.id: l for l in self.prj.lines}

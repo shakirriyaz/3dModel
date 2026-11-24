@@ -112,15 +112,22 @@ def run_qc(prj: Project, routes: dict[str, Route], std: Profile) -> QCReport:
         for e in prj.equipment:
             if _overlap(sb, e.box()):
                 add("equipment_clash", "error", lid, f"leg {i} intersects equipment {e.id}")
-    # pipe-pipe clash
-    for ii, (l1, i1, a1, b1, r1) in enumerate(seg_index):
-        for l2, i2, a2, b2, r2 in seg_index[ii + 1:]:
-            if l1 == l2:
+    # pipe-pipe clash (sweep along x over inflated boxes keeps this near-linear)
+    half = std.pipe_gap / 2
+    cand = []
+    for (l, i, a, b, r) in seg_index:
+        bb = _seg_box(a, b, r + half)
+        cand.append((bb[0][0], bb[1][0], l, i, a, b, r, bb))
+    cand.sort(key=lambda t: t[0])
+    for ii, (x0, x1, l1, i1, a1, b1, r1, bb1) in enumerate(cand):
+        for x0b, x1b, l2, i2, a2, b2, r2, bb2 in cand[ii + 1:]:
+            if x0b >= x1 - TOL:
+                break
+            if l1 == l2 or not _overlap(bb1, bb2):
                 continue
-            if _overlap(_seg_box(a1, b1, r1 + std.pipe_gap / 2), _seg_box(a2, b2, r2 + std.pipe_gap / 2)):
-                hard = _overlap(_seg_box(a1, b1, r1), _seg_box(a2, b2, r2))
-                add("pipe_clash", "error" if hard else "warning", f"{l1}/{l2}",
-                    "pipes intersect" if hard else f"pipe gap < {std.pipe_gap:.0f} mm (legs {i1}/{i2})")
+            hard = _overlap(_seg_box(a1, b1, r1), _seg_box(a2, b2, r2))
+            add("pipe_clash", "error" if hard else "warning", f"{l1}/{l2}",
+                "pipes intersect" if hard else f"pipe gap < {std.pipe_gap:.0f} mm (legs {i1}/{i2})")
     errors = sum(1 for i in items if i.severity == "error")
     return QCReport(passed=errors == 0, errors=errors, warnings=len(items) - errors,
                     checks_run=checks, items=items, standard=std.name, standard_validated=std.validated)

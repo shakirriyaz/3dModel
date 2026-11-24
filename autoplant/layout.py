@@ -88,6 +88,17 @@ def _slots(shape, sy, sz):
     return out
 
 
+def _top_slots(sx, sy):
+    """(x, y) offsets on the top face, centre first, then a 1 m grid inside the footprint."""
+    out = [(0.0, 0.0)]
+    for k in range(1, 6):
+        for dx, dy in ((k, 0), (-k, 0), (0, k), (0, -k)):
+            x, y = dx * 1000.0, dy * 1000.0
+            if abs(x) <= sx / 2 - 250 and abs(y) <= sy / 2 - 250:
+                out.append((x, y))
+    return out
+
+
 def auto_nozzles(prj: Project):
     """Create/complete nozzles for every line end, facing the partner equipment."""
     p = prj.grid_pitch
@@ -114,13 +125,16 @@ def auto_nozzles(prj: Project):
                 if abs(dy) > abs(dx):
                     pref.reverse()
                 pref += [("-x" if pref[0] == "+x" else "+x") if pref[0][1] == "x" else ("-y" if pref[0] == "+y" else "+y")]
-                pref += [d for d in ("+x", "-x", "+y", "-y") if d not in pref]
+                pref += [d for d in ("+x", "-x", "+y", "-y") if d not in pref] + ["+z"]
                 chosen = None
                 for cand in pref:
                     d = DIRS[cand]
                     sx, sy, sz = e.size
-                    w = sy if d[0] else sx
-                    slots = _slots(e.shape, w, sz)
+                    if cand == "+z":
+                        slots = _top_slots(sx, sy)
+                    else:
+                        w = sy if d[0] else sx
+                        slots = _slots(e.shape, w, sz)
                     k = used.get((eid, cand), 0)
                     if k < len(slots):
                         chosen = (cand, d, slots[k])
@@ -131,7 +145,9 @@ def auto_nozzles(prj: Project):
                 nz.direction = chosen[0]
                 d, (lat, vert) = chosen[1], chosen[2]
                 sx, sy, sz = e.size
-                if d[0]:
+                if chosen[0] == "+z":
+                    nz.offset = (_snap(lat, p), _snap(vert, p), sz)
+                elif d[0]:
                     nz.offset = (d[0] * sx / 2, _snap(lat, p), _snap(vert, p))
                 else:
                     nz.offset = (_snap(lat, p), d[1] * sy / 2, _snap(vert, p))
