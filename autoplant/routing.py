@@ -124,6 +124,8 @@ class Router:
 
     # ------------------------------------------------------------------
     MAX_STATES = 90_000_000
+    SOFT_PENALTY_CELLS = 6.0      # cost of one cell inside another pipe's envelope, in cells
+    SOFT_MAX_EXP = 12_000_000
 
     def route_line(self, ln, routed_pts, soft=False) -> Route:
         """soft=False: other pipes are hard obstacles (one 8 m-margin window, cheap to fail).
@@ -173,8 +175,8 @@ class Router:
             softa = np.ascontiguousarray(sarr.reshape(-1).astype(np.uint8))
             path, _ = astar(blocked, nx, ny, nz, ls[0], ls[1], ls[2], d0, run0, lg[0], lg[1], lg[2], want,
                             R, goal_run, float(p), float(s.bend_penalty), zf, 1.05,
-                            4_000_000,
-                            DX, DY, DZ, OPPA, softa, float(p) * 40.0)
+                            self.SOFT_MAX_EXP if soft else 4_000_000,
+                            DX, DY, DZ, OPPA, softa, float(p) * self.SOFT_PENALTY_CELLS)
             if len(path):
                 cells = [((int(a) + w0[0], int(b) + w0[1], int(c)), int(d), 0) for a, b, c, d in path]
                 return self._finish(ln, cells, p0, p1, s0, s1, r, g)
