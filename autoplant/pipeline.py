@@ -51,6 +51,7 @@ def run(prj: Project, outdir: str, outputs=None, standard: str | None = None) ->
         res.files.append(name)
         return p
 
+    x_scene.write_scene_json(prj, routes, out("scene.json"), stamp, report, rows)
     with open(out("model.json"), "w") as f:
         json.dump({"project": prj.model_dump(by_alias=True),
                    "routes": {k: v.model_dump() for k, v in routes.items()}}, f, indent=1)

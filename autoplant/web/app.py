@@ -20,6 +20,12 @@ def index():
     return (STATIC / "index.html").read_text()
 
 
+@app.get("/workspace/{job}", response_class=HTMLResponse)
+def workspace(job: str):
+    _out(job)
+    return (STATIC / "workspace.html").read_text().replace("__JOB__", job)
+
+
 @app.get("/api/options")
 def options():
     return {"standards": {k: {"description": v.description, "validated": v.validated} for k, v in PROFILES.items()},

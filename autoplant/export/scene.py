@@ -6,20 +6,34 @@ from .. import rack as rackmod
 from ..catalog import od
 
 
-def scene_dict(prj: Project, routes: dict[str, Route], stamp: str) -> dict:
+def scene_dict(prj: Project, routes: dict[str, Route], stamp: str, qc=None, bom=None) -> dict:
     eq = []
     for e in prj.equipment:
         lo, hi = e.box()
-        eq.append({"id": e.id, "kind": e.kind, "shape": e.shape, "lo": lo, "hi": hi,
-                   "nozzles": [{"id": n.id, "p": e.nozzle_pos(n), "d": n.direction} for n in e.nozzles]})
+        eq.append({"id": e.id, "kind": e.kind, "shape": e.shape, "lo": lo, "hi": hi, "area": e.area or "-",
+                   "size": e.size, "elevation": e.elevation, "position": e.position,
+                   "nozzles": [{"id": n.id, "p": e.nozzle_pos(n), "d": n.direction, "nps": n.nps} for n in e.nozzles]})
     lines = []
     for ln in prj.lines:
         rt = routes.get(ln.id)
         if rt and rt.status == "routed":
             lines.append({"id": ln.id, "nps": ln.nps, "r": od(ln.nps) / 2, "points": rt.points,
+                          "from": ln.from_, "to": ln.to, "spec": ln.spec, "service": ln.service,
+                          "route": rt.note or "open routing",
                           "valves": [[v, p] for v, p in rt.valve_positions]})
     steel = [{"id": n, "lo": lo, "hi": hi} for n, lo, hi in rackmod.boxes(prj)]
-    return {"name": prj.name, "stamp": stamp, "equipment": eq, "lines": lines, "steel": steel}
+    d = {"name": prj.name, "stamp": stamp, "equipment": eq, "lines": lines, "steel": steel,
+         "failed": [{"id": k, "note": v.note} for k, v in routes.items() if v.status != "routed"]}
+    if qc is not None:
+        d["qc"] = json.loads(qc.model_dump_json())
+    if bom is not None:
+        d["bom"] = bom
+    return d
+
+
+def write_scene_json(prj, routes, path, stamp, qc=None, bom=None):
+    with open(path, "w") as f:
+        json.dump(scene_dict(prj, routes, stamp, qc, bom), f)
 
 
 def write_viewer(prj, routes, path, stamp):

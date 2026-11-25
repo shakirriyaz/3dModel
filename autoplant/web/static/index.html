@@ -40,7 +40,7 @@ $('f').onsubmit=async ev=>{ev.preventDefault();const fd=new FormData();
  const q=j.qc,base=`/api/jobs/${j.job}/file/`;
  $('res').innerHTML=`<div class="card"><h2 class="${q.passed?'ok':'bad'}">QC ${j.status}</h2>
  <div>${q.errors} errors · ${q.warnings} warnings · ${j.seconds}s · standard <b>${q.standard}</b>${q.standard_validated?'':' (unvalidated)'}</div>
- <p><a href="/api/jobs/${j.job}/zip"><b>Download all (zip)</b></a></p>
+ <p><a href="/workspace/${j.job}" target="_blank"><b>Open in workspace</b></a> · <a href="/api/jobs/${j.job}/zip"><b>Download all (zip)</b></a></p>
  <div>${j.files.map(f=>`<a href="${base+f}" target="_blank">${f}</a>`).join(' · ')}</div></div>
  ${q.items.length?`<div class="card"><table><tr><th>Sev</th><th>Check</th><th>Subject</th><th>Message</th></tr>${q.items.map(i=>`<tr><td class="${i.severity=='error'?'bad':''}">${i.severity}</td><td>${i.check}</td><td>${i.subject}</td><td>${i.message}</td></tr>`).join('')}</table></div>`:''}
  ${j.files.includes('viewer.html')?`<iframe src="${base}viewer.html"></iframe>`:''}`;};

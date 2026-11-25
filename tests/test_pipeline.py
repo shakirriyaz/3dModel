@@ -77,3 +77,14 @@ def test_rack_disabled_when_equipment_in_lane(tmp_path):
     res = run(prj, str(tmp_path), ["qc_report"])
     assert not res.project.rack.active and res.project.notes
     assert any(i.check == "rack_lane" for i in res.qc.items)
+
+
+def test_workspace_page_and_scene():
+    c = TestClient(app)
+    r = c.post("/api/run", data={"example": "three_units_rack.json", "standard": "generic", "outputs": "qc_report"})
+    job = r.json()["job"]
+    page = c.get(f"/workspace/{job}")
+    assert page.status_code == 200 and job in page.text and "Model Explorer" in page.text
+    scene = c.get(f"/api/jobs/{job}/file/scene.json").json()
+    assert scene["lines"] and scene["steel"] and scene["qc"]["passed"] and scene["bom"]
+    assert c.get("/workspace/doesnotexist").status_code == 404
