@@ -80,24 +80,26 @@ class Router:
         hi = [max(a[i], b[i]) for i in range(3)]
         arr[self.g.box_slices(lo, hi, infl)] = True
 
-    def _blocked(self, ln, routed_pts, w0, w1):
+    def _blocked(self, ln, routed_pts, w0, w1, soft=False):
         """Blocked-cell array for the window [w0, w1) (cell indices, x/y windowed, full z)."""
         g, s = self.g, self.std
         r = od(ln.nps) / 2
         half = g.p * 0.5
         shape = (w1[0] - w0[0], w1[1] - w0[1], g.n[2])
         arr = np.zeros(shape, dtype=bool)
+        sarr = np.zeros(shape, dtype=bool)
         wlo = (g.o[0] + w0[0] * g.p - g.p, g.o[1] + w0[1] * g.p - g.p)
         whi = (g.o[0] + w1[0] * g.p + g.p, g.o[1] + w1[1] * g.p + g.p)
 
-        def paint(lo, hi, infl):
+        def paint(lo, hi, infl, target=None):
+            target = arr if target is None else target
             if hi[0] + infl < wlo[0] or lo[0] - infl > whi[0] or hi[1] + infl < wlo[1] or lo[1] - infl > whi[1]:
                 return
             sl = g.box_slices(lo, hi, infl)
             xs = slice(max(sl[0].start - w0[0], 0), min(sl[0].stop - w0[0], shape[0]))
             ys = slice(max(sl[1].start - w0[1], 0), min(sl[1].stop - w0[1], shape[1]))
             if xs.start < xs.stop and ys.start < ys.stop:
-                arr[xs, ys, sl[2]] = True
+                target[xs, ys, sl[2]] = True
 
         kz = math.ceil((r + s.grade_clearance - g.o[2]) / g.p)
         arr[:, :, :max(kz, 0)] = True       # pipe soffit must clear grade
@@ -116,13 +118,17 @@ class Router:
             else:
                 segs = list(zip(pts, pts[1:]))
             for a, b in segs:
-                paint(tuple(min(a[i], b[i]) for i in range(3)), tuple(max(a[i], b[i]) for i in range(3)), infl)
-        return arr
+                paint(tuple(min(a[i], b[i]) for i in range(3)), tuple(max(a[i], b[i]) for i in range(3)), infl,
+                      sarr if (soft and pts is not None) else arr)
+        return arr, sarr
 
     # ------------------------------------------------------------------
     MAX_STATES = 90_000_000
 
-    def route_line(self, ln, routed_pts) -> Route:
+    def route_line(self, ln, routed_pts, soft=False) -> Route:
+        """soft=False: other pipes are hard obstacles (one 8 m-margin window, cheap to fail).
+        soft=True: routed pipes are passable at a high cost (congestion-tolerant, wide window);
+        the caller rips up whichever lines the result runs through."""
         g, s = self.g, self.std
         (p0, s0, dn0, L0), (p1, s1, dn1, L1), r = self.stubs[ln.id]
         start, goal = g.cell(s0), g.cell(s1)
@@ -143,7 +149,7 @@ class Router:
             elif self.prj.rack_elevation is not None and abs(z - self.prj.rack_elevation) < p * 0.5:
                 zf[iz] = 0.7
         last = None
-        for margin_mm in (8000, 20000, 60000, None):
+        for margin_mm in ((25000, None) if soft else (8000,)):
             if margin_mm is None:
                 m = max(g.n[0], g.n[1])
             else:
@@ -158,16 +164,17 @@ class Router:
             if last == (w0, w1):
                 continue
             last = (w0, w1)
-            arr = self._blocked(ln, routed_pts, w0, w1)
+            arr, sarr = self._blocked(ln, routed_pts, w0, w1, soft)
             ls = (start[0] - w0[0], start[1] - w0[1], start[2])
             lg = (goal[0] - w0[0], goal[1] - w0[1], goal[2])
             arr[ls] = False
             arr[lg] = False
             blocked = np.ascontiguousarray(arr.reshape(-1).astype(np.uint8))
+            softa = np.ascontiguousarray(sarr.reshape(-1).astype(np.uint8))
             path, _ = astar(blocked, nx, ny, nz, ls[0], ls[1], ls[2], d0, run0, lg[0], lg[1], lg[2], want,
                             R, goal_run, float(p), float(s.bend_penalty), zf, 1.05,
                             4_000_000,
-                            DX, DY, DZ, OPPA)
+                            DX, DY, DZ, OPPA, softa, float(p) * 40.0)
             if len(path):
                 cells = [((int(a) + w0[0], int(b) + w0[1], int(c)), int(d), 0) for a, b, c, d in path]
                 return self._finish(ln, cells, p0, p1, s0, s1, r, g)
@@ -233,60 +240,74 @@ class Router:
         return res
 
     # ------------------------------------------------------------------
-    def _dist_to_route(self, pts, q):
-        best = 1e18
-        for a, b in zip(pts, pts[1:]):
-            lo = [min(a[i], b[i]) for i in range(3)]
-            hi = [max(a[i], b[i]) for i in range(3)]
-            d2 = sum(max(lo[i] - q[i], 0, q[i] - hi[i]) ** 2 for i in range(3))
-            best = min(best, d2)
-        return math.sqrt(best)
+    def _conflicts(self, ln, pts, routed_pts) -> list[str]:
+        """Routed lines whose clearance envelope the path `pts` runs through."""
+        s = self.std
+        by_id = {l.id: l for l in self.prj.lines}
+        r = od(ln.nps) / 2
+        out = []
+        for lid, other in routed_pts.items():
+            if lid == ln.id:
+                continue
+            infl = r + od(by_id[lid].nps) / 2 + s.pipe_gap
+            hit = False
+            for a, b in zip(pts, pts[1:]):
+                alo = [min(a[i], b[i]) - infl for i in range(3)]
+                ahi = [max(a[i], b[i]) + infl for i in range(3)]
+                for c, d in zip(other, other[1:]):
+                    if all(min(c[i], d[i]) < ahi[i] and max(c[i], d[i]) > alo[i] for i in range(3)):
+                        hit = True
+                        break
+                if hit:
+                    break
+            if hit:
+                out.append(lid)
+        return out
 
-    def route_all(self, rounds: int = 3) -> dict[str, Route]:
-        """Initial pass (big pipes first), then rip-up & reroute for failed lines:
-        remove the k nearest routed lines, route the failed one first, reroute the removed."""
+    def route_all(self, reroute_factor: int = 4) -> dict[str, Route]:
+        """1) hard pass, big pipes first. 2) Every failed line is routed congestion-tolerantly
+        (routed pipes passable at high cost); the lines it runs through are ripped up, the line is
+        committed, and the ripped lines go back in the queue. Bounded by a reroute budget."""
         by_id = {l.id: l for l in self.prj.lines}
         order = sorted(self.prj.lines, key=lambda l: (-od(l.nps), l.id))
         routes: dict[str, Route] = {}
         pts: dict[str, list] = {}
+        queue: list[str] = []
         for ln in order:
-            routes[ln.id] = self.route_line(ln, pts)
-            if routes[ln.id].status == "routed":
-                pts[ln.id] = routes[ln.id].points
-        for _ in range(rounds):
-            failed = [lid for lid, r in routes.items() if r.status != "routed"]
-            if not failed:
-                break
-            progress = False
-            for fid in failed:
-                (a, _, _, _), (b, _, _, _), _ = self.stubs[fid]
-                near = sorted(pts, key=lambda l: min(self._dist_to_route(pts[l], a), self._dist_to_route(pts[l], b)))
-                for k in (2, 5, 10, 20):
-                    rip = near[:k]
-                    if not rip:
-                        break
-                    snap_pts, snap_routes = dict(pts), dict(routes)
-                    for l in rip:
-                        pts.pop(l)
-                    rt = self.route_line(by_id[fid], pts)
-                    ok = rt.status == "routed"
-                    if ok:
-                        routes[fid], pts[fid] = rt, rt.points
-                        for l in sorted(rip, key=lambda l: (-od(by_id[l].nps), l)):
-                            r2 = self.route_line(by_id[l], pts)
-                            routes[l] = r2
-                            if r2.status == "routed":
-                                pts[l] = r2.points
-                            else:
-                                ok = False
-                                break
-                    if ok:
-                        progress = True
-                        break
-                    pts.clear(); pts.update(snap_pts)
-                    routes.clear(); routes.update(snap_routes)
-            if not progress:
-                break
+            rt = self.route_line(ln, pts)
+            routes[ln.id] = rt
+            if rt.status == "routed":
+                pts[ln.id] = rt.points
+            else:
+                queue.append(ln.id)
+        budget = reroute_factor * len(order)
+        rips: dict[str, int] = {}
+        gave_up = set()
+        while queue and budget > 0:
+            lid = queue.pop(0)
+            ln = by_id[lid]
+            rt = self.route_line(ln, pts)                      # cheap hard retry (state changed)
+            if rt.status != "routed":
+                rt = self.route_line(ln, pts, soft=True)
+            if rt.status != "routed":
+                routes[lid] = rt
+                gave_up.add(lid)                                # infeasible even ignoring pipes
+                continue
+            conf = self._conflicts(ln, rt.points, pts)
+            if len(conf) > 12 or any(rips.get(c, 0) >= 4 for c in conf):
+                routes[lid] = Route(line_id=lid, status="failed", note="congestion: too many conflicts")
+                gave_up.add(lid)
+                continue
+            for c in conf:
+                pts.pop(c)
+                routes[c] = Route(line_id=c, status="failed", note="ripped up")
+                rips[c] = rips.get(c, 0) + 1
+                queue.append(c)
+            budget -= len(conf)
+            routes[lid], pts[lid] = rt, rt.points
+        for lid in queue:       # budget exhausted
+            if routes[lid].status != "routed":
+                routes[lid] = Route(line_id=lid, status="failed", note="reroute budget exhausted")
         self.routes = routes
         self._place_valves()
         return routes

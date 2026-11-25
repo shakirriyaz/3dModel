@@ -12,7 +12,7 @@ OPP = np.array([1, 0, 3, 2, 5, 4], dtype=np.int64)
 
 @njit(cache=True)
 def astar(blocked, nx, ny, nz, sx, sy, sz, d0, run0, gx, gy, gz, want, R, goal_run,
-          pitch, bend, zf, eps, max_exp, dx, dy, dz, opp):
+          pitch, bend, zf, eps, max_exp, dx, dy, dz, opp, soft, soft_pen):
     R1 = R + 1
     nstates = nx * ny * nz * 6 * R1
     g = np.full(nstates, np.inf, dtype=np.float32)
@@ -65,6 +65,8 @@ def astar(blocked, nx, ny, nz, sx, sy, sz, d0, run0, gx, gy, gz, want, R, goal_r
                 continue
             step = pitch * (zf[Z] if nd < 4 else 1.0)
             ng = gc + step + extra
+            if soft[(X * ny + Y) * nz + Z] != 0:
+                ng += soft_pen
             ns = ((((X * ny + Y) * nz + Z) * 6 + nd) * R1) + nrun
             if ng < g[ns] - 1e-4:
                 g[ns] = ng
