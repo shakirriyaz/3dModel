@@ -6,6 +6,7 @@ import numpy as np
 from .model import Project, Route, DIRS, split_ref
 from .catalog import od, elbow_takeoff, valve_ftf
 from .standards import Profile
+from . import rack as rackmod
 from ._astar import astar, DX, DY, DZ, OPP as OPPA
 
 DV = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]
@@ -55,6 +56,7 @@ class Router:
         self.prj, self.std = prj, std
         self.g = Grid(prj)
         self.routes: dict[str, Route] = {}
+        self.steel = rackmod.boxes(prj)
         self.stubs: dict[str, tuple] = {}   # line -> (start_pt, start_stub, end_pt, end_stub, d_s, d_e, r)
         self._prep()
 
@@ -106,6 +108,8 @@ class Router:
         for e in self.prj.equipment:
             lo, hi = e.box()
             paint(lo, hi, r + s.equip_clearance + half)
+        for _, lo, hi in self.steel:
+            paint(lo, hi, r + 25.0 + half)
         for other in self.prj.lines:
             if other.id == ln.id:
                 continue
@@ -127,35 +131,28 @@ class Router:
     SOFT_PENALTY_CELLS = 6.0      # cost of one cell inside another pipe's envelope, in cells
     SOFT_MAX_EXP = 12_000_000
 
-    def route_line(self, ln, routed_pts, soft=False) -> Route:
-        """soft=False: other pipes are hard obstacles (one 8 m-margin window, cheap to fail).
-        soft=True: routed pipes are passable at a high cost (congestion-tolerant, wide window);
-        the caller rips up whichever lines the result runs through."""
+    def _zf(self):
         g, s = self.g, self.std
-        (p0, s0, dn0, L0), (p1, s1, dn1, L1), r = self.stubs[ln.id]
-        start, goal = g.cell(s0), g.cell(s1)
-        for c in (start, goal):
-            if not all(0 <= c[i] < g.n[i] for i in range(3)):
-                return Route(line_id=ln.id, status="failed", note="nozzle stub outside grid")
-        p = g.p
-        min_leg = 2 * elbow_takeoff(ln.nps) + s.weld_gap
-        R = max(1, math.ceil(min_leg / p))
-        d0, want = DNAME[dn0], OPP[DNAME[dn1]]
-        run0 = min(R, math.ceil(L0 / p))
-        goal_run = max(0, math.ceil((min_leg - L1) / p))
         zf = np.ones(g.n[2])
         for iz in range(g.n[2]):
-            z = g.o[2] + iz * p
+            z = g.o[2] + iz * g.p
             if s.grade_band < z < s.headroom:
                 zf[iz] = 4.0
-            elif self.prj.rack_elevation is not None and abs(z - self.prj.rack_elevation) < p * 0.5:
+            elif self.prj.rack_elevation is not None and abs(z - self.prj.rack_elevation) < g.p * 0.5:
                 zf[iz] = 0.7
+        return zf
+
+    def _search(self, ln, routed_pts, start, d0, run0, goal, want, goal_run, R, soft=False):
+        """A* between two grid states. Returns list of ((x,y,z), heading, 0) or None."""
+        g, s = self.g, self.std
+        p = g.p
+        for c in (start, goal):
+            if not all(0 <= c[i] < g.n[i] for i in range(3)):
+                return None
+        zf = self._zf()
         last = None
         for margin_mm in ((25000, None) if soft else (8000,)):
-            if margin_mm is None:
-                m = max(g.n[0], g.n[1])
-            else:
-                m = int(margin_mm / p)
+            m = max(g.n[0], g.n[1]) if margin_mm is None else int(margin_mm / p)
             while True:
                 w0 = (max(min(start[0], goal[0]) - m, 0), max(min(start[1], goal[1]) - m, 0))
                 w1 = (min(max(start[0], goal[0]) + m + 1, g.n[0]), min(max(start[1], goal[1]) + m + 1, g.n[1]))
@@ -178,9 +175,95 @@ class Router:
                             self.SOFT_MAX_EXP if soft else 4_000_000,
                             DX, DY, DZ, OPPA, softa, float(p) * self.SOFT_PENALTY_CELLS)
             if len(path):
-                cells = [((int(a) + w0[0], int(b) + w0[1], int(c)), int(d), 0) for a, b, c, d in path]
-                return self._finish(ln, cells, p0, p1, s0, s1, r, g)
-        return Route(line_id=ln.id, status="failed", note="no feasible path on grid")
+                return [((int(a) + w0[0], int(b) + w0[1], int(c)), int(d), 0) for a, b, c, d in path]
+        return None
+
+    def _params(self, ln):
+        g, s = self.g, self.std
+        (p0, s0, dn0, L0), (p1, s1, dn1, L1), r = self.stubs[ln.id]
+        min_leg = 2 * elbow_takeoff(ln.nps) + s.weld_gap
+        R = max(1, math.ceil(min_leg / g.p))
+        return (p0, s0, dn0, L0), (p1, s1, dn1, L1), r, min_leg, R
+
+    def route_line(self, ln, routed_pts, soft=False) -> Route:
+        """soft=False: other pipes are hard obstacles (one 8 m-margin window, cheap to fail).
+        soft=True: routed pipes are passable at a high cost (congestion-tolerant, wide window);
+        the caller rips up whichever lines the result runs through."""
+        g = self.g
+        (p0, s0, dn0, L0), (p1, s1, dn1, L1), r, min_leg, R = self._params(ln)
+        d0, want = DNAME[dn0], OPP[DNAME[dn1]]
+        cells = self._search(ln, routed_pts, g.cell(s0), d0, min(R, math.ceil(L0 / g.p)), g.cell(s1), want,
+                             max(0, math.ceil((min_leg - L1) / g.p)), R, soft)
+        if cells is None:
+            return Route(line_id=ln.id, status="failed", note="no feasible path on grid")
+        return self._finish(ln, cells, p0, p1, s0, s1, r, g)
+
+    # ---------------- pipe-rack-first routing ----------------
+    def _self_clear(self, pts, r) -> bool:
+        infl = 2 * r + 50.0
+        segs = [(tuple(min(a[i], b[i]) - infl for i in range(3)), tuple(max(a[i], b[i]) + infl for i in range(3)))
+                for a, b in zip(pts, pts[1:])]
+        for i in range(len(segs)):
+            for j in range(i + 2, len(segs)):
+                if all(segs[i][0][k] < segs[j][1][k] and segs[j][0][k] < segs[i][1][k] for k in range(3)):
+                    # perpendicular neighbours-of-neighbours may legitimately be close; require real overlap
+                    a, b = pts[i], pts[i + 1]
+                    c, d = pts[j], pts[j + 1]
+                    hl = [min(a[k], b[k]) - r for k in range(3)]
+                    hh = [max(a[k], b[k]) + r for k in range(3)]
+                    if all(min(c[k], d[k]) < hh[k] and max(c[k], d[k]) > hl[k] for k in range(3)):
+                        return False
+        return True
+
+    def route_via_rack(self, ln, pts) -> Route | None:
+        """Long line: stub -> riser to a free rack track -> straight run along the rack -> drop to stub."""
+        rk, g = self.prj.rack, self.g
+        (p0, s0, dn0, L0), (p1, s1, dn1, L1), r, min_leg, R = self._params(ln)
+        if not rk.active or r > rackmod.MAX_RACK_RADIUS or abs(p1[0] - p0[0]) < rk.long_threshold:
+            return None
+        p = g.p
+        sign = 1 if p1[0] > p0[0] else -1
+        dtrav = 0 if sign > 0 else 1
+        snap = lambda v: round(v / p) * p
+        lo_x, hi_x = rk.x0 + rk.bay, rk.x1 - rk.bay
+        xe = min(max(snap(s0[0]), lo_x), hi_x)
+        xx = min(max(snap(s1[0]), lo_x), hi_x)
+        if sign * (xx - xe) < 2 * min_leg:
+            return None
+        ymid = 0.5 * (p0[1] + p1[1])
+        reach = rk.width / 2 - 500.0
+        ys = [snap(rk.y_center + k * p) for k in range(-int(reach / p), int(reach / p) + 1)]
+        yp = min(max(ymid, rk.y_center - reach), rk.y_center + reach)
+        cands = sorted(((abs(y - yp), z, y) for y in ys for z in rackmod.tier_z(self.prj)))
+        d0, want = DNAME[dn0], OPP[DNAME[dn1]]
+        goal_run = max(0, math.ceil((min_leg - L1) / p))
+        tried = 0
+        for _, z, y in cands:
+            if tried >= self.RACK_TRIES:
+                break
+            if self._conflicts(ln, [(xe, y, z), (xx, y, z)], pts):
+                continue
+            tried += 1
+            e_cell, x_cell = g.cell((xe, y, z)), g.cell((xx, y, z))
+            legA = self._search(ln, pts, g.cell(s0), d0, min(R, math.ceil(L0 / p)), e_cell, dtrav, 0, R)
+            if legA is None:
+                continue
+            legC = self._search(ln, pts, x_cell, dtrav, R, g.cell(s1), want, goal_run, R)
+            if legC is None:
+                continue
+            step = sign
+            mid = [((x, e_cell[1], e_cell[2]), dtrav, 0) for x in range(e_cell[0] + step, x_cell[0], step)]
+            rt = self._finish(ln, legA + mid + legC, p0, p1, s0, s1, r, g)
+            if self._self_clear(rt.points, r) and not self._conflicts(ln, rt.points, pts):
+                rt.note = "rack"
+                return rt
+        return None
+
+    RACK_TRIES = 6
+
+    def route_line_auto(self, ln, pts) -> Route:
+        rt = self.route_via_rack(ln, pts)
+        return rt if rt is not None else self.route_line(ln, pts)
 
     def _finish(self, ln, cells, p0, p1, s0, s1, r, g):
         # corners of the grid path
@@ -276,7 +359,7 @@ class Router:
         pts: dict[str, list] = {}
         queue: list[str] = []
         for ln in order:
-            rt = self.route_line(ln, pts)
+            rt = self.route_line_auto(ln, pts)
             routes[ln.id] = rt
             if rt.status == "routed":
                 pts[ln.id] = rt.points
@@ -288,7 +371,7 @@ class Router:
         while queue and budget > 0:
             lid = queue.pop(0)
             ln = by_id[lid]
-            rt = self.route_line(ln, pts)                      # cheap hard retry (state changed)
+            rt = self.route_line_auto(ln, pts)                 # cheap hard retry (state changed)
             if rt.status != "routed":
                 rt = self.route_line(ln, pts, soft=True)
             if rt.status != "routed":

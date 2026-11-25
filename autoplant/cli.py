@@ -19,6 +19,10 @@ def main(argv=None):
         prj = load_project(a.input)
     res = run(prj, a.out, a.outputs.split(","), a.standard)
     print(f"QC {res.status}: {res.qc.errors} errors, {res.qc.warnings} warnings  ({res.seconds:.1f}s)")
+    nr = sum(1 for r in res.routes.values() if r.note == "rack")
+    print(f"pipe rack: {'active' if res.project.rack.active else 'not used'}, {nr} lines routed via rack")
+    for n in res.project.notes:
+        print("  note:", n)
     for i in res.qc.items[:30]:
         print(f"  [{i.severity}] {i.check} {i.subject}: {i.message}")
     print("files:", ", ".join(res.files))

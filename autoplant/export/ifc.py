@@ -6,6 +6,7 @@ import ifcopenshell.api
 import ifcopenshell.util.shape_builder
 Vector = tuple
 from ..model import Project, Route
+from .. import rack as rackmod
 from ..catalog import od, elbow_takeoff, valve_ftf, wall
 
 EQ_CLASS = {"vessel_vertical": "IfcTank", "vessel_horizontal": "IfcTank", "tank": "IfcTank",
@@ -69,6 +70,12 @@ def write_ifc(prj: Project, routes: dict[str, Route], path: str):
             item = sb.extrude(prof, magnitude=sz, position=Vector((e.position[0], e.position[1], lo[2])))
         make(EQ_CLASS.get(e.kind, "IfcBuildingElementProxy"), e.id, [item],
              props={"Kind": e.kind, "NozzleCount": len(e.nozzles)})
+
+    for name, lo, hi in rackmod.boxes(prj):
+        sx, sy, sz = hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]
+        prof = sb.rectangle(size=(sx, sy))
+        item = sb.extrude(prof, magnitude=sz, position=((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, lo[2]))
+        make("IfcColumn" if "-C" in name else "IfcBeam", name, [item], props={"Role": "pipe rack steel"})
 
     by_id = {l.id: l for l in prj.lines}
     for lid, rt in routes.items():

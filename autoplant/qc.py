@@ -4,6 +4,7 @@ import math
 from .model import Project, Route, QCItem, QCReport, split_ref
 from .catalog import od, elbow_takeoff, valve_ftf, PIPE_OD
 from .standards import Profile
+from . import rack as rackmod
 
 TOL = 1.0
 
@@ -28,10 +29,13 @@ def run_qc(prj: Project, routes: dict[str, Route], std: Profile) -> QCReport:
     items: list[QCItem] = []
     checks = ["completeness", "nozzle_connectivity", "orthogonality", "pipe_size_known", "min_leg",
               "bend_count", "equipment_clash", "pipe_clash", "equipment_overlap", "headroom",
-              "valve_fit", "duplicate_nozzle_use"]
+              "valve_fit", "duplicate_nozzle_use", "rack_clash", "self_clash"]
 
     def add(check, sev, subj, msg):
         items.append(QCItem(check=check, severity=sev, subject=subj, message=msg))
+
+    for note in prj.notes:
+        add("rack_lane", "warning", "rack", note)
 
     # equipment overlap (layout)
     boxes = {e.id: e.box() for e in prj.equipment}
@@ -112,6 +116,22 @@ def run_qc(prj: Project, routes: dict[str, Route], std: Profile) -> QCReport:
         for e in prj.equipment:
             if _overlap(sb, e.box()):
                 add("equipment_clash", "error", lid, f"leg {i} intersects equipment {e.id}")
+    # pipe vs rack steel (exact, no extra clearance)
+    steel = rackmod.boxes(prj)
+    for lid, i, a, b, r in seg_index:
+        sb = _seg_box(a, b, r)
+        for name, lo, hi in steel:
+            if _overlap(sb, (lo, hi)):
+                add("rack_clash", "error", lid, f"leg {i} intersects rack steel {name}")
+    # a line passing through itself (non-adjacent legs)
+    by_line: dict[str, list] = {}
+    for lid, i, a, b, r in seg_index:
+        by_line.setdefault(lid, []).append((i, a, b, r))
+    for lid, segs in by_line.items():
+        for x in range(len(segs)):
+            for y in range(x + 2, len(segs)):
+                if _overlap(_seg_box(segs[x][1], segs[x][2], segs[x][3]), _seg_box(segs[y][1], segs[y][2], segs[y][3])):
+                    add("self_clash", "error", lid, f"legs {segs[x][0]} and {segs[y][0]} intersect")
     # pipe-pipe clash (sweep along x over inflated boxes keeps this near-linear)
     half = std.pipe_gap / 2
     cand = []

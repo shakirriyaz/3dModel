@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import ezdxf
 from ..model import Project, Route
+from .. import rack as rackmod
 from ..catalog import od
 
 
@@ -33,6 +34,11 @@ def write_dxf(prj: Project, routes: dict[str, Route], path: str, stamp: str):
         for n in e.nozzles:
             p = e.nozzle_pos(n)
             msp.add_circle((p[0], p[1]), 100, dxfattribs={"layer": "EQUIPMENT"})
+    doc.layers.add("RACK", color=8)
+    for name, lo, hi in rackmod.boxes(prj):
+        msp.add_lwpolyline([(lo[0], lo[1]), (hi[0], lo[1]), (hi[0], hi[1]), (lo[0], hi[1])], close=True, dxfattribs={"layer": "RACK"})
+        msp.add_lwpolyline([(lo[0], lo[2] + off), (hi[0], lo[2] + off), (hi[0], hi[2] + off), (lo[0], hi[2] + off)],
+                           close=True, dxfattribs={"layer": "RACK"})
     for ln in prj.lines:
         rt = routes.get(ln.id)
         if rt is None or rt.status != "routed":

@@ -21,6 +21,7 @@ class Equipment(BaseModel):
     shape: Optional[Literal["box", "cylinder_v", "cylinder_h"]] = None
     size: Optional[Vec] = None        # bounding box sx, sy, sz
     elevation: Optional[float] = None
+    area: Optional[str] = None        # unit/area tag; areas are laid out one after another along X
     position: Optional[tuple[float, float]] = None   # fixed centre x,y (else auto-placed)
     nozzles: list[Nozzle] = []
 
@@ -46,6 +47,21 @@ class Line(BaseModel):
     valves: list[str] = []                # e.g. ["gate", "check"]
 
 
+class RackSpec(BaseModel):
+    """Pipe rack running along X. enabled=None -> auto (on for plants with >= 10 equipment)."""
+    enabled: Optional[bool] = None
+    width: float = 6000.0
+    tiers: int = 3
+    tier_spacing: float = 1000.0
+    bay: float = 6000.0
+    long_threshold: float = 12000.0   # lines whose nozzles are further apart in X use the rack
+    y_center: float = 0.0
+    # runtime (set by the pipeline)
+    active: bool = False
+    x0: float = 0.0
+    x1: float = 0.0
+
+
 class Project(BaseModel):
     name: str = "project"
     standard: str = "generic"
@@ -53,6 +69,8 @@ class Project(BaseModel):
     rack_elevation: Optional[float] = 4500.0
     max_height: float = 12000.0
     margin: float = 6000.0
+    rack: RackSpec = RackSpec()
+    notes: list[str] = []
     equipment: list[Equipment]
     lines: list[Line]
 

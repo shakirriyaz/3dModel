@@ -4,6 +4,7 @@ import math
 from .model import Project, Nozzle, split_ref, DIRS
 from .catalog import EQUIP_TEMPLATES
 from .standards import Profile
+from . import rack as rackmod
 
 
 def _snap(v, p):
@@ -27,21 +28,35 @@ def place_equipment(prj: Project, std: Profile):
     free = [e for e in prj.equipment if e.position is None]
     if not free:
         return
-    # process-flow layers: longest path from sources over from->to links
-    succ = {e.id: set() for e in prj.equipment}
+    use_lane = rackmod.wanted(prj)
+    x = max((e.box()[1][0] for e in fixed), default=0.0) + (std.equip_spacing if fixed else 0.0)
+    # areas in order of first appearance (no area tags -> one block, as before)
+    areas: dict = {}
+    for e in free:
+        areas.setdefault(e.area, []).append(e)
+    for grp in areas.values():
+        x = _place_block(prj, std, grp, x, use_lane)
+        if len(areas) > 1:
+            x += std.equip_spacing        # extra gap between areas
+
+
+def _place_block(prj, std, grp, x, use_lane):
+    p = prj.grid_pitch
+    ids = {e.id for e in grp}
+    succ = {e.id: set() for e in grp}
     for ln in prj.lines:
-        a, b = split_ref(ln.from_)[0], split_ref(ln.to)[0]
-        if a != b:
-            succ[a].add(b)
-    # BFS levels from sources (equipment with no incoming line; else first equipment);
-    # back-edges in loops are ignored so recycles do not distort the flow order.
-    indeg = {e.id: 0 for e in prj.equipment}
-    for a_, bs in succ.items():
+        a_, b_ = split_ref(ln.from_)[0], split_ref(ln.to)[0]
+        if a_ != b_ and a_ in ids and b_ in ids:
+            succ[a_].add(b_)
+    # BFS levels from sources (no incoming line within the block; else first item); back-edges
+    # in loops are ignored so recycles do not distort the flow order.
+    indeg = {i: 0 for i in ids}
+    for bs in succ.values():
         for b_ in bs:
             indeg[b_] += 1
-    roots = [e.id for e in prj.equipment if indeg[e.id] == 0] or [prj.equipment[0].id]
-    level = {}
-    queue = []
+    order = [e.id for e in grp]
+    roots = [i for i in order if indeg[i] == 0] or [order[0]]
+    level, queue = {}, []
     for r_ in roots:
         level[r_] = 0
         queue.append(r_)
@@ -51,22 +66,30 @@ def place_equipment(prj: Project, std: Profile):
             if b_ not in level:
                 level[b_] = level[a_] + 1
                 queue.append(b_)
-    for e in prj.equipment:
-        level.setdefault(e.id, 0)
-    x0 = max((e.box()[1][0] for e in fixed), default=0.0) + (std.equip_spacing if fixed else 0.0)
+    for i in order:
+        level.setdefault(i, 0)
     layers: dict[int, list] = {}
-    for e in free:
+    for e in grp:
         layers.setdefault(level[e.id], []).append(e)
-    x = x0
     for lv in sorted(layers):
         items = layers[lv]
         width = max(e.size[0] for e in items)
-        total = sum(e.size[1] for e in items) + std.equip_spacing * (len(items) - 1)
-        y = -total / 2
-        for e in items:
-            e.position = (_snap(x + width / 2, p), _snap(y + e.size[1] / 2, p))
-            y += e.size[1] + std.equip_spacing
+        if not use_lane:
+            total = sum(e.size[1] for e in items) + std.equip_spacing * (len(items) - 1)
+            y = -total / 2
+            for e in items:
+                e.position = (_snap(x + width / 2, p), _snap(y + e.size[1] / 2, p))
+                y += e.size[1] + std.equip_spacing
+        else:   # two rows either side of the rack lane
+            half = rackmod.lane_half(prj, std.equip_clearance) + std.equip_spacing / 2
+            yc = prj.rack.y_center
+            for side, g2 in ((1, items[0::2]), (-1, items[1::2])):
+                y = half
+                for e in g2:
+                    e.position = (_snap(x + width / 2, p), _snap(yc + side * (y + e.size[1] / 2), p))
+                    y += e.size[1] + std.equip_spacing
         x += width + std.equip_spacing
+    return x
 
 
 def _slots(shape, sy, sz):

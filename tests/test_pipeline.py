@@ -53,3 +53,27 @@ def test_web_roundtrip():
     assert c.get(f"/api/jobs/{job}/zip").headers["content-type"] == "application/zip"
     assert c.post("/api/run", data={"standard": "generic"}).status_code == 400
     assert c.post("/api/run", files={"file": ("x.json", b"{bad")}).status_code == 422
+
+
+def test_pipe_rack_first_routing(tmp_path):
+    prj = load_project(f"{EX}/three_units_rack.json")
+    res = run(prj, str(tmp_path), ["ifc", "qc_report", "viewer"])
+    assert res.project.rack.active, res.project.notes
+    rack_lines = [r for r in res.routes.values() if r.note == "rack"]
+    assert rack_lines, "long lines should use the rack"
+    assert res.qc.passed, res.qc.items
+    from autoplant import rack as rackmod
+    tiers = rackmod.tier_z(res.project)
+    for r in rack_lines:     # a long straight run sits on a rack tier, inside the lane
+        legs = [(a, b) for a, b in zip(r.points, r.points[1:]) if abs(a[0] - b[0]) > 10000 and a[1] == b[1] and a[2] == b[2]]
+        assert legs and all(a[2] in tiers for a, b in legs)
+    f = ifcopenshell.open(str(tmp_path / "plant.ifc"))
+    assert f.by_type("IfcColumn") and f.by_type("IfcBeam")
+
+
+def test_rack_disabled_when_equipment_in_lane(tmp_path):
+    prj = load_project(f"{EX}/three_units_rack.json")
+    prj.equipment[0].position = (0.0, 0.0)          # fixed inside the lane
+    res = run(prj, str(tmp_path), ["qc_report"])
+    assert not res.project.rack.active and res.project.notes
+    assert any(i.check == "rack_lane" for i in res.qc.items)

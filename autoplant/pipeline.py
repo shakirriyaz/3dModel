@@ -4,7 +4,7 @@ import json, os, time
 from dataclasses import dataclass, field
 from .model import Project, Route, QCReport
 from .standards import get_profile
-from . import layout, routing, qc, bom
+from . import layout, routing, qc, bom, rack
 
 ALL_OUTPUTS = ["ifc", "dxf", "iso_pdf", "iso_svg", "bom_csv", "qc_report", "viewer"]
 
@@ -27,6 +27,7 @@ def build_model(prj: Project, standard: str | None = None):
     layout.apply_templates(prj)
     layout.place_equipment(prj, std)
     layout.auto_nozzles(prj)
+    rack.finalize(prj, std.equip_clearance)
     router = routing.Router(prj, std)
     routes = router.route_all()
     report = qc.run_qc(prj, routes, std)

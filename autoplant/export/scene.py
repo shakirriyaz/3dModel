@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 from ..model import Project, Route
+from .. import rack as rackmod
 from ..catalog import od
 
 
@@ -17,7 +18,8 @@ def scene_dict(prj: Project, routes: dict[str, Route], stamp: str) -> dict:
         if rt and rt.status == "routed":
             lines.append({"id": ln.id, "nps": ln.nps, "r": od(ln.nps) / 2, "points": rt.points,
                           "valves": [[v, p] for v, p in rt.valve_positions]})
-    return {"name": prj.name, "stamp": stamp, "equipment": eq, "lines": lines}
+    steel = [{"id": n, "lo": lo, "hi": hi} for n, lo, hi in rackmod.boxes(prj)]
+    return {"name": prj.name, "stamp": stamp, "equipment": eq, "lines": lines, "steel": steel}
 
 
 def write_viewer(prj, routes, path, stamp):
@@ -36,7 +38,7 @@ canvas{display:block;width:100%;height:100%}#hud{position:fixed;left:10px;top:8p
 const D=__DATA__;
 const cv=document.getElementById('c'),ctx=cv.getContext('2d');
 let az=-0.9,el=0.55,zoom=1,pan=[0,0],drag=null;
-const all=[...D.equipment.flatMap(e=>[e.lo,e.hi]),...D.lines.flatMap(l=>l.points)];
+const all=[...D.equipment.flatMap(e=>[e.lo,e.hi]),...D.lines.flatMap(l=>l.points),...(D.steel||[]).flatMap(e=>[e.lo,e.hi])];
 const mn=[0,1,2].map(i=>Math.min(...all.map(p=>p[i]))),mx=[0,1,2].map(i=>Math.max(...all.map(p=>p[i])));
 const ctr=mn.map((v,i)=>(v+mx[i])/2),span=Math.max(...mx.map((v,i)=>v-mn[i]));
 const colors=['#4fc3f7','#ffb74d','#81c784','#ba68c8','#f06292','#fff176','#4db6ac','#a1887f'];
@@ -62,6 +64,7 @@ function draw(){cv.width=innerWidth;cv.height=innerHeight;ctx.clearRect(0,0,cv.w
  D.equipment.forEach(e=>{if(e.shape==='cylinder_v')cyl(e);else if(e.shape==='cylinder_h')cylh(e);else box(e.lo,e.hi,'#9ab');
   const c=pr([(e.lo[0]+e.hi[0])/2,(e.lo[1]+e.hi[1])/2,e.hi[2]]);ctx.fillStyle='#cde';ctx.fillText(e.id,c[0]-12,c[1]-6);
   e.nozzles.forEach(n=>{const p=pr(n.p);ctx.fillStyle='#fff';ctx.fillRect(p[0]-2,p[1]-2,4,4);});});
+ (D.steel||[]).forEach(e=>box(e.lo,e.hi,'#6b7a8f'));
  const segs=[];D.lines.forEach((l,i)=>{for(let k=0;k<l.points.length-1;k++){const a=l.points[k],b=l.points[k+1];segs.push({a,b,l,i,d:(pr(a)[2]+pr(b)[2])/2});}});
  segs.sort((p,q)=>q.d-p.d);
  segs.forEach(s=>{const sc=pr(s.a)[3];line(s.a,s.b,colors[s.i%8],Math.max(2,s.l.r*2*sc));});
