@@ -103,3 +103,12 @@ def test_markups_and_clash_waivers(c):
     assert c.post(f"/api/projects/{pid}/clashes/status", json={"key": "nope", "status": "waived", "comment": "x"}, headers=he).status_code == 404
     assert "Clash report" in c.get(f"/api/projects/{pid}/clash_report.html", headers=hv).text
     assert hard[0]["id"] in c.get(f"/api/projects/{pid}/clash_report.csv", headers=hv).text
+
+
+def test_project_workspace_page_served(c):
+    ha, he, hv = setup_users(c)
+    pid = c.post("/api/projects", data={"example": "three_units_rack.json"}, headers=he).json()["id"]
+    page = c.get(f"/workspace/p/{pid}")
+    assert page.status_code == 200 and f'MODE="project"' in page.text and f'ID="{pid}"' in page.text
+    # the page itself carries no data - the API enforces access
+    assert TestClient(app).get(f"/api/projects/{pid}/file/scene.json").status_code == 401

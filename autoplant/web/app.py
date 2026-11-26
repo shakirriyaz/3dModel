@@ -24,10 +24,15 @@ def index():
     return (STATIC / "index.html").read_text()
 
 
+@app.get("/workspace/p/{pid}", response_class=HTMLResponse)
+def workspace_project(pid: int):
+    return (STATIC / "workspace.html").read_text().replace("__MODE__", "project").replace("__ID__", str(pid))
+
+
 @app.get("/workspace/{job}", response_class=HTMLResponse)
 def workspace(job: str):
     _out(job)
-    return (STATIC / "workspace.html").read_text().replace("__JOB__", job)
+    return (STATIC / "workspace.html").read_text().replace("__MODE__", "job").replace("__ID__", job)
 
 
 @app.get("/api/options")

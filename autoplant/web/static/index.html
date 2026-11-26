@@ -14,7 +14,8 @@ td,th{border-bottom:1px solid var(--bd);padding:5px 6px;text-align:left}a{color:
 .warn{font-size:13px;color:var(--mut)}
 </style></head><body><main>
 <h1>AutoPlant</h1><p class="s">Give inputs, pick outputs. Layout, routing and QC run automatically.</p>
-<form id="f" class="card">
+<div id="team" class="card"><h2 style="margin-top:0">Team projects</h2><div id="teambody">Loading…</div></div>
+<form id="f" class="card"><div class="warn" style="margin-bottom:6px"><b>Quick run</b> – one-off, not saved to the team database.</div>
 <label>Input file (project .json or DEXPI .xml)</label><input type="file" id="file" accept=".json,.xml">
 <label>…or built-in example</label><select id="ex"><option value="">(none)</option></select>
 <label>Design standard profile</label><select id="std"></select><div class="warn" id="stdw"></div>
@@ -23,8 +24,30 @@ td,th{border-bottom:1px solid var(--bd);padding:5px 6px;text-align:left}a{color:
 </form>
 <div id="res"></div>
 <script>
-const $=id=>document.getElementById(id);let prof={};
-fetch('/api/options').then(r=>r.json()).then(o=>{prof=o.standards;
+const $=id=>document.getElementById(id);let prof={};let OPTS=null;
+async function J(url,opt){const r=await fetch(url,opt);let j=null;try{j=await r.json()}catch(e){}return{ok:r.ok,status:r.status,j}}
+const post=(u,b)=>J(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
+async function team(msg){
+ const T=$('teambody');const st=(await J('/api/auth/status')).j;const me=await J('/api/auth/me');
+ if(!me.ok){T.innerHTML=`${msg?`<div class="bad">${msg}</div>`:''}<div class="warn">${st.needs_first_user?'First run: create the administrator account.':'Log in to see your team projects.'}</div>
+  <label>Username</label><input id="lu" autocomplete="username"><label>Password (min 8 chars)</label><input id="lp" type="password" autocomplete="current-password">
+  <button id="lb">${st.needs_first_user?'Create admin &amp; log in':'Log in'}</button>`;
+  $('lb').onclick=async()=>{const u=$('lu').value,p=$('lp').value;
+   if(st.needs_first_user){const r=await post('/api/auth/register',{username:u,password:p});if(!r.ok){team(r.j.detail);return}}
+   const r=await post('/api/auth/login',{username:u,password:p});if(!r.ok){team(r.j.detail||'Login failed');return}team();};return;}
+ const u=me.j,pr=(await J('/api/projects')).j;
+ T.innerHTML=`<div class="warn">Signed in as <b>${u.username}</b> (${u.role}) · <a href="#" id="lo">log out</a></div>
+  ${pr.length?`<table><tr><th>Project</th><th>Owner</th><th>Rev</th><th></th></tr>${pr.map(p=>`<tr><td><a href="/workspace/p/${p.id}"><b>${p.name}</b></a></td><td>${p.owner}</td><td>${p.current_rev}</td><td><a href="#" data-m="${p.id}">add member</a></td></tr>`).join('')}</table>`:'<p class="warn">No projects yet.</p>'}
+  ${u.role!=='viewer'?`<h3>New project</h3><label>Name</label><input id="pn" placeholder="optional"><label>Input file (.json / DEXPI .xml)</label><input type="file" id="pf" accept=".json,.xml"><label>…or example</label><select id="pe"><option value="">(none)</option>${(OPTS.examples||[]).map(x=>`<option>${x}</option>`).join('')}</select>
+   <label>Standard profile</label><select id="ps">${Object.keys(OPTS.standards).map(k=>`<option>${k}</option>`).join('')}</select><button id="pc">Create project</button><span id="pm" class="warn"></span>`:''}
+  ${u.role==='admin'?`<h3>Add user (admin)</h3><div style="display:flex;gap:6px;flex-wrap:wrap"><input id="nu" placeholder="username" style="width:140px"><input id="np" type="password" placeholder="password (8+)" style="width:140px"><select id="nr" style="width:110px"><option>editor</option><option>viewer</option><option>admin</option></select><button id="na" style="margin:0">Add</button><span id="nm" class="warn"></span></div>`:''}`;
+ $('lo').onclick=async e=>{e.preventDefault();await post('/api/auth/logout',{});team();};
+ document.querySelectorAll('[data-m]').forEach(a=>a.onclick=async e=>{e.preventDefault();const n=prompt('Username to add:');if(!n)return;const r=prompt('Role (viewer/editor):','viewer');const x=await post('/api/projects/'+a.dataset.m+'/members',{username:n,role:r});alert(x.ok?'Added':(x.j.detail||'Failed'));});
+ if($('pc'))$('pc').onclick=async()=>{const fd=new FormData();fd.append('name',$('pn').value);if($('pf').files[0])fd.append('file',$('pf').files[0]);else fd.append('example',$('pe').value);fd.append('standard',$('ps').value);
+  $('pm').textContent=' creating…';const r=await J('/api/projects',{method:'POST',body:fd});if(!r.ok){$('pm').textContent=' '+(r.j.detail||'failed');return}location.href='/workspace/p/'+r.j.id;};
+ if($('na'))$('na').onclick=async()=>{const r=await post('/api/auth/register',{username:$('nu').value,password:$('np').value,role:$('nr').value});$('nm').textContent=r.ok?' added':' '+(r.j.detail||'failed');};
+}
+fetch('/api/options').then(r=>r.json()).then(o=>{prof=o.standards;OPTS=o;team(new URLSearchParams(location.search).get('login')?'Please log in':'');
  for(const k in o.standards){const e=document.createElement('option');e.value=k;e.textContent=k+' – '+o.standards[k].description;$('std').appendChild(e)}
  o.examples.forEach(x=>{const e=document.createElement('option');e.value=x;e.textContent=x;$('ex').appendChild(e)});
  $('outs').innerHTML=o.outputs.map(x=>`<label><input type="checkbox" name="o" value="${x}" checked> ${x}</label>`).join('');

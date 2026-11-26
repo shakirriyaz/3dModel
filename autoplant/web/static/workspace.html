@@ -2,141 +2,198 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AutoPlant Workspace</title>
 <style>
-:root{--bg:#f3f5f9;--panel:#fff;--fg:#1a2230;--mut:#5b6678;--bd:#d5dbe6;--acc:#1f5eff;--ok:#1b7f3b;--bad:#b3261e;--warn:#9a6700;--view:#10151c;--hl:#ffd400}
+:root{--bg:#f3f5f9;--panel:#fff;--fg:#1a2230;--mut:#5b6678;--bd:#d5dbe6;--acc:#1f5eff;--ok:#1b7f3b;--bad:#b3261e;--warn:#9a6700;--view:#10151c}
 @media(prefers-color-scheme:dark){:root{--bg:#0d1218;--panel:#161d28;--fg:#e6ebf3;--mut:#93a0b4;--bd:#263042;--acc:#7aa2ff;--ok:#5fd18a;--bad:#ff8a80;--warn:#f0c36b}}
 *{box-sizing:border-box}html,body{height:100%;margin:0}body{background:var(--bg);color:var(--fg);font:13px/1.4 system-ui,Arial;display:flex;flex-direction:column;overflow:hidden}
-#top{display:flex;align-items:center;gap:14px;padding:6px 12px;background:var(--panel);border-bottom:1px solid var(--bd)}
+#top{display:flex;align-items:center;gap:12px;padding:6px 12px;background:var(--panel);border-bottom:1px solid var(--bd)}
 #top b{font-size:15px}.badge{padding:2px 9px;border-radius:10px;font-weight:600;font-size:12px}.badge.ok{background:#1b7f3b22;color:var(--ok)}.badge.bad{background:#b3261e22;color:var(--bad)}
+#banner{display:none;background:#9a670022;color:var(--warn);padding:6px 12px;border-bottom:1px solid var(--bd)}#banner button{margin-left:10px}
 #tabs{display:flex;background:var(--panel);border-bottom:1px solid var(--bd);padding:0 8px}
 #tabs button{background:none;border:0;border-bottom:2px solid transparent;color:var(--mut);padding:8px 14px;cursor:pointer;font:inherit}
 #tabs button.on{color:var(--acc);border-color:var(--acc);font-weight:600}
 #ribbon{display:flex;gap:6px;padding:6px 10px;background:var(--panel);border-bottom:1px solid var(--bd);flex-wrap:wrap;align-items:center;min-height:38px}
-#ribbon button,#ribbon label{border:1px solid var(--bd);background:var(--bg);color:var(--fg);border-radius:5px;padding:4px 10px;cursor:pointer;font:inherit}
-#ribbon button:hover{border-color:var(--acc)}#ribbon .sep{width:1px;height:20px;background:var(--bd);margin:0 4px}
+button,input,select,textarea{font:inherit;color:var(--fg)}
+#ribbon button,.btn{border:1px solid var(--bd);background:var(--bg);border-radius:5px;padding:4px 10px;cursor:pointer}
+#ribbon button:hover,.btn:hover{border-color:var(--acc)}#ribbon button.on{background:var(--acc);color:#fff;border-color:var(--acc)}#ribbon .sep{width:1px;height:20px;background:var(--bd);margin:0 4px}
+.btn.pri{background:var(--acc);color:#fff;border-color:var(--acc)}
 #main{flex:1;display:flex;min-height:0}
-.side{background:var(--panel);overflow:auto;border-right:1px solid var(--bd)}#left{width:270px}#right{width:300px;border-left:1px solid var(--bd);border-right:0}
-.side h3{margin:0;padding:7px 10px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);border-bottom:1px solid var(--bd);position:sticky;top:0;background:var(--panel)}
-#filter{width:calc(100% - 16px);margin:8px;padding:5px 8px;border:1px solid var(--bd);border-radius:5px;background:var(--bg);color:var(--fg)}
+.side{background:var(--panel);overflow:auto;border-right:1px solid var(--bd)}#left{width:260px}#right{width:310px;border-left:1px solid var(--bd);border-right:0}
+.side h3{margin:0;padding:7px 10px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);border-bottom:1px solid var(--bd);position:sticky;top:0;background:var(--panel);z-index:1}
+#filter{width:calc(100% - 16px);margin:8px;padding:5px 8px;border:1px solid var(--bd);border-radius:5px;background:var(--bg)}
 .node{padding:2px 6px 2px calc(8px + var(--d,0)*14px);cursor:pointer;white-space:nowrap;display:flex;gap:5px;align-items:center}.node:hover{background:var(--bg)}.node.sel{background:var(--acc);color:#fff}
 .node .tw{width:12px;color:var(--mut);display:inline-block;text-align:center}.node.sel .tw{color:#fff}.dot{width:9px;height:9px;border-radius:2px;display:inline-block}
-#center{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}#view{flex:1;background:var(--view);min-height:0;position:relative}canvas{width:100%;height:100%;display:block}
-#hint{position:absolute;left:10px;bottom:8px;color:#9ab;font-size:11px;pointer-events:none}#cursor{position:absolute;right:10px;bottom:8px;color:#9ab;font-size:11px}
-#bottom{height:200px;background:var(--panel);border-top:1px solid var(--bd);display:flex;flex-direction:column}
-#btabs{display:flex;border-bottom:1px solid var(--bd)}#btabs button{background:none;border:0;padding:5px 14px;cursor:pointer;color:var(--mut);font:inherit}#btabs button.on{color:var(--acc);font-weight:600}
+#center{flex:1;display:flex;flex-direction:column;min-width:0}#view{flex:1;background:var(--view);min-height:0;position:relative}canvas{width:100%;height:100%;display:block}
+#hint{position:absolute;left:10px;bottom:8px;color:#9ab;font-size:11px;pointer-events:none}#toast{position:absolute;left:50%;top:10px;transform:translateX(-50%);padding:6px 14px;border-radius:6px;background:#000c;color:#fff;display:none;max-width:80%}
+#bottom{height:210px;background:var(--panel);border-top:1px solid var(--bd);display:flex;flex-direction:column}
+#btabs{display:flex;border-bottom:1px solid var(--bd)}#btabs button{background:none;border:0;padding:5px 14px;cursor:pointer;color:var(--mut)}#btabs button.on{color:var(--acc);font-weight:600}
 #bbody{flex:1;overflow:auto}table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;padding:3px 8px;border-bottom:1px solid var(--bd);white-space:nowrap}th{position:sticky;top:0;background:var(--panel);color:var(--mut)}
-tr.click{cursor:pointer}tr.click:hover{background:var(--bg)}.e{color:var(--bad)}.w{color:var(--warn)}
-.prop{display:grid;grid-template-columns:110px 1fr;gap:2px 8px;padding:8px 10px}.prop div:nth-child(odd){color:var(--mut)}
+tr.click{cursor:pointer}tr.click:hover{background:var(--bg)}.e{color:var(--bad)}.w{color:var(--warn)}.ok{color:var(--ok)}.mut{color:var(--mut)}
+.prop{display:grid;grid-template-columns:100px 1fr;gap:2px 8px;padding:8px 10px}.prop div:nth-child(odd){color:var(--mut)}
+.edit{padding:8px 10px;border-top:1px solid var(--bd)}.edit h4{margin:0 0 6px;font-size:12px;color:var(--mut);text-transform:uppercase}.edit .row{display:flex;gap:6px;align-items:center;margin:4px 0;flex-wrap:wrap}
+.edit input{width:84px;padding:3px 6px;border:1px solid var(--bd);border-radius:4px;background:var(--bg)}.edit input.w{width:150px}
+.mk{padding:6px 10px;border-bottom:1px solid var(--bd)}.mk .c{color:var(--mut);margin-left:10px}
 a{color:var(--acc)}
-@media(max-width:900px){#left{width:180px}#right{display:none}}
+@media(max-width:900px){#left{width:170px}#right{display:none}}
 </style></head><body>
-<div id="top"><b>AutoPlant</b><span id="proj"></span><span id="badge" class="badge"></span><span style="flex:1"></span><a href="/">New run</a></div>
-<div id="tabs"></div>
-<div id="ribbon"></div>
+<div id="top"><b>AutoPlant</b><span id="proj"></span><span id="badge" class="badge"></span><span id="rev" class="mut"></span><span style="flex:1"></span><span id="who" class="mut"></span><a href="/">Home</a></div>
+<div id="banner"></div>
+<div id="tabs"></div><div id="ribbon"></div>
 <div id="main">
  <div id="left" class="side"><h3>Model Explorer</h3><input id="filter" placeholder="Filter (tag, line, area)…"><div id="tree"></div></div>
- <div id="center"><div id="view"><canvas id="c"></canvas><div id="hint">drag orbit · shift+drag pan · wheel zoom · click select · dbl-click zoom to</div><div id="cursor"></div></div>
+ <div id="center"><div id="view"><canvas id="c"></canvas><div id="hint">drag orbit · shift+drag pan · wheel zoom · click select · dbl-click zoom</div><div id="toast"></div></div>
   <div id="bottom"><div id="btabs"></div><div id="bbody"></div></div></div>
- <div id="right" class="side"><h3>Properties</h3><div id="props"><div class="prop"><div>Selection</div><div>none</div></div></div></div>
+ <div id="right" class="side"><h3>Properties</h3><div id="props"></div><div id="edit"></div></div>
 </div>
 <script>
-const JOB="__JOB__";let D=null;
+const MODE="__MODE__",ID="__ID__";
+const BASE=MODE==='project'?`/api/projects/${ID}`:`/api/jobs/${ID}`;
+let D=null,ME=null,ROLE='viewer',REV=0,CLASH=[],MARKS=[],HIST=[],addMark=false;
 const cv=document.getElementById('c'),ctx=cv.getContext('2d');
 const colors=['#4fc3f7','#ffb74d','#81c784','#ba68c8','#f06292','#fff176','#4db6ac','#a1887f'];
-let az=-0.9,el=0.55,zoom=1,pan=[0,0],ctr=[0,0,0],span=1,sel=null,layers={equip:true,pipe:true,steel:true,noz:true,grid:true};
+let az=-0.9,el=0.55,zoom=1,pan=[0,0],ctr=[0,0,0],span=1,sel=null,pin=null,layers={equip:true,pipe:true,steel:true,noz:true,grid:true,marks:true};
 let tab='Model',btab='Review';
-const TABS={Project:['Open run page'],Model:['Iso','Plan','Front','Side','Fit','|','Equipment','Piping','Rack steel','Nozzles','Grid'],
- Spec:[],Draw:['Isometrics PDF','DXF plan','Isometric (selected line)'],Review:['Run QC view','Zoom to first issue'],Output:['All files (zip)','IFC','BOM CSV','QC report']};
+const TABS={Model:['Iso','Plan','Front','Side','Fit','|','Equipment','Piping','Rack steel','Nozzles','Grid'],
+ Edit:['Undo last edit','Re-route selected','Delete selected line'],Spec:[],Draw:['Isometrics PDF','DXF plan','Isometric (selected line)'],
+ Review:['Add markup','Clash report (HTML)','Clash report (CSV)','Zoom to first issue'],Output:['All files (zip)','IFC','STEP','BOM CSV','QC report']};
+const $=id=>document.getElementById(id);
 const fmt=v=>Array.isArray(v)?v.map(x=>Math.round(x)).join(', '):v;
-fetch(`/api/jobs/${JOB}/file/scene.json`).then(r=>r.json()).then(d=>{D=d;init();});
-function init(){
- document.getElementById('proj').textContent=D.name;
- const b=document.getElementById('badge'),q=D.qc;b.textContent='QC '+(q.passed?'PASSED':'FAILED')+' · '+q.errors+' err · '+q.warnings+' warn';b.className='badge '+(q.passed?'ok':'bad');
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function toast(m,bad){const t=$('toast');t.textContent=m;t.style.display='block';t.style.background=bad?'#b3261ecc':'#000c';clearTimeout(toast.h);toast.h=setTimeout(()=>t.style.display='none',4500);}
+async function api(path,opt){const r=await fetch(BASE+path,opt);if(r.status===401){location.href='/?login=1';throw 0}
+ let j=null;try{j=await r.json()}catch(e){}return {ok:r.ok,status:r.status,j};}
+const post=(p,b)=>api(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
+const canEdit=()=>ROLE==='editor'||ROLE==='admin';
+async function load(keepSel){
+ const [s]=await Promise.all([fetch(`${BASE}/file/scene.json?${Date.now()}`)]);
+ if(s.status===401){location.href='/?login=1';return}if(!s.ok){document.body.innerHTML='<p style="padding:20px">Not found or no access.</p>';return}
+ D=await s.json();
+ if(MODE==='project'){const p=(await api('')).j;ROLE=p.my_role;REV=p.current_rev;$('proj').textContent=p.name;$('rev').textContent='rev '+REV;
+  CLASH=(await api('/clashes')).j||[];MARKS=(await api('/markups')).j||[];HIST=(await api('/revisions')).j||[];}
+ else{ROLE='editor';$('proj').textContent=D.name;HIST=((await api('/history')).j||[]).slice().reverse();
+  CLASH=(D.qc.items||[]).filter(i=>/clash|overlap|tee/.test(i.check)).map(i=>({id:i.key.slice(0,12),key:i.key,type:i.severity=='error'?'hard':'soft',check:i.check,item_a:i.subject.split('/')[0],item_b:i.subject.split('/')[1]||'',x:i.at?i.at[0]:null,y:i.at?i.at[1]:null,z:i.at?i.at[2]:null,message:i.message,status:'open'}));}
+ const q=D.qc,b=$('badge');b.textContent='QC '+(q.passed?'PASSED':'FAILED')+' · '+q.errors+' err · '+q.warnings+' warn';b.className='badge '+(q.passed?'ok':'bad');
+ if(!keepSel||!D.__init){const all=[...D.equipment.flatMap(e=>[e.lo,e.hi]),...D.lines.flatMap(l=>l.points),...D.steel.flatMap(e=>[e.lo,e.hi])];
+  const mn=[0,1,2].map(i=>Math.min(...all.map(p=>p[i]))),mx=[0,1,2].map(i=>Math.max(...all.map(p=>p[i])));ctr=mn.map((v,i)=>(v+mx[i])/2);span=Math.max(...mx.map((v,i)=>v-mn[i]));D.__init=1;}
  const all=[...D.equipment.flatMap(e=>[e.lo,e.hi]),...D.lines.flatMap(l=>l.points),...D.steel.flatMap(e=>[e.lo,e.hi])];
- const mn=[0,1,2].map(i=>Math.min(...all.map(p=>p[i]))),mx=[0,1,2].map(i=>Math.max(...all.map(p=>p[i])));
- ctr=mn.map((v,i)=>(v+mx[i])/2);span=Math.max(...mx.map((v,i)=>v-mn[i]));D._mn=mn;D._mx=mx;
- tabs();ribbon();tree();bottom();props();draw();
-}
-function tabs(){const t=document.getElementById('tabs');t.innerHTML=Object.keys(TABS).map(k=>`<button class="${k==tab?'on':''}" onclick="tab='${k}';tabs();ribbon()">${k}</button>`).join('');}
-function ribbon(){const r=document.getElementById('ribbon');
- r.innerHTML=TABS[tab].map(x=>x=='|'?'<span class="sep"></span>':`<button onclick="act('${x}')">${x}</button>`).join('')||'<span style="color:var(--mut)">Spec data is shown in the bottom panel (Spec tab) and Properties.</span>';
- if(tab=='Spec')setB('Spec');}
-function act(a){
- const base=`/api/jobs/${JOB}/file/`;
- const map={'Iso':()=>{az=-0.9;el=0.55;draw()},'Plan':()=>{az=0;el=1.5;draw()},'Front':()=>{az=0;el=0;draw()},'Side':()=>{az=-1.57;el=0;draw()},
- 'Fit':()=>{zoom=1;pan=[0,0];draw()},'Equipment':()=>tog('equip'),'Piping':()=>tog('pipe'),'Rack steel':()=>tog('steel'),'Nozzles':()=>tog('noz'),'Grid':()=>tog('grid'),
- 'Isometrics PDF':()=>open(base+'isometrics.pdf'),'DXF plan':()=>open(base+'plant.dxf'),'IFC':()=>open(base+'plant.ifc'),'BOM CSV':()=>open(base+'bom.csv'),'QC report':()=>open(base+'qc_report.md'),
- 'All files (zip)':()=>open(`/api/jobs/${JOB}/zip`),'Open run page':()=>open('/'),
- 'Isometric (selected line)':()=>{if(sel&&sel.t=='line')open(base+'iso/'+sel.id+'.svg');else alert('Select a line first')},
- 'Run QC view':()=>setB('Review'),'Zoom to first issue':()=>{const i=D.qc.items[0];if(i)pickById(i.subject.split('/')[0],true)}};
- (map[a]||(()=>{}))();}
+ D._mn=[0,1,2].map(i=>Math.min(...all.map(p=>p[i])));D._mx=[0,1,2].map(i=>Math.max(...all.map(p=>p[i])));
+ if(sel&&!(D.lines.find(l=>l.id==sel.id)||D.equipment.find(e=>e.id==sel.id)))sel=null;
+ tabs();ribbon();tree();bottom();props();draw();}
+function tabs(){$('tabs').innerHTML=Object.keys(TABS).filter(k=>k!=='Edit'||canEdit()).map(k=>`<button class="${k==tab?'on':''}" onclick="tab='${k}';tabs();ribbon()">${k}</button>`).join('');}
+function ribbon(){$('ribbon').innerHTML=TABS[tab].map(x=>x=='|'?'<span class="sep"></span>':`<button class="${x=='Add markup'&&addMark?'on':''}" onclick="act('${x}')">${x}</button>`).join('')||'<span class="mut">Per-line spec data is in the bottom Spec tab and the Properties panel.</span>';if(tab=='Spec')setB('Spec');}
+function act(a){const f=BASE+'/file/';
+ const M={'Iso':()=>{az=-0.9;el=0.55;draw()},'Plan':()=>{az=0;el=1.5;draw()},'Front':()=>{az=0;el=0;draw()},'Side':()=>{az=-1.57;el=0;draw()},'Fit':()=>{zoom=1;pan=[0,0];draw()},
+ 'Equipment':()=>tog('equip'),'Piping':()=>tog('pipe'),'Rack steel':()=>tog('steel'),'Nozzles':()=>tog('noz'),'Grid':()=>tog('grid'),
+ 'Isometrics PDF':()=>open(f+'isometrics.pdf'),'DXF plan':()=>open(f+'plant.dxf'),'IFC':()=>open(f+'plant.ifc'),'STEP':()=>open(f+'plant.step'),'BOM CSV':()=>open(f+'bom.csv'),'QC report':()=>open(f+'qc_report.md'),
+ 'All files (zip)':()=>open(BASE+'/zip'),
+ 'Isometric (selected line)':()=>{if(sel&&sel.t=='line')open(f+'iso/'+sel.id+'.svg');else toast('Select a line first',1)},
+ 'Undo last edit':undo,'Re-route selected':()=>{if(sel&&sel.t=='line')doEdit([{op:'reroute',id:sel.id}],'re-route '+sel.id);else toast('Select a line first',1)},
+ 'Delete selected line':()=>{if(sel&&sel.t=='line'&&confirm('Delete line '+sel.id+' (and its branches)?'))doEdit([{op:'delete_line',id:sel.id}],'delete '+sel.id);else if(!(sel&&sel.t=='line'))toast('Select a line first',1)},
+ 'Add markup':()=>{addMark=!addMark;toast(addMark?'Click an item in the 3D view to place a markup':'Markup mode off');ribbon()},
+ 'Clash report (HTML)':()=>open(MODE==='project'?BASE+'/clash_report.html':f+'clash_report.html'),'Clash report (CSV)':()=>open(MODE==='project'?BASE+'/clash_report.csv':f+'clash_report.csv'),
+ 'Zoom to first issue':()=>{const c=CLASH[0];if(c)gotoClash(c)}};(M[a]||(()=>{}))();}
 function tog(k){layers[k]=!layers[k];draw();}
-function tree(){const f=document.getElementById('filter').value.toLowerCase(),T=document.getElementById('tree');const rows=[];
- const areas={};D.equipment.forEach(e=>(areas[e.area]=areas[e.area]||[]).push(e));
- rows.push(node(0,'▾','SITE '+D.name.slice(0,22),null));
- Object.keys(areas).forEach(a=>{const es=areas[a].filter(e=>!f||(e.id+a).toLowerCase().includes(f));if(!es.length)return;
-  rows.push(node(1,'▾','ZONE '+a,null));es.forEach(e=>{rows.push(node(2,'▸','⬓ '+e.id+' ('+e.kind+')',{t:'equip',id:e.id}))});});
- const ls=D.lines.filter(l=>!f||(l.id+l.service+l.spec).toLowerCase().includes(f));
- if(ls.length){rows.push(node(1,'▾','PIPING',null));ls.forEach((l,i)=>rows.push(node(2,'',`<span class="dot" style="background:${colors[D.lines.indexOf(l)%8]}"></span> ${l.id} · ${l.nps}" ${l.spec}`,{t:'line',id:l.id})));}
- if(D.steel.length)rows.push(node(1,'','STRUCTURE · pipe rack ('+D.steel.length+' members)',null));
- D.failed.forEach(x=>rows.push(node(2,'','<span class="e">✕ '+x.id+' (not routed)</span>',null)));
- T.innerHTML=rows.join('');}
-document.getElementById('filter').oninput=()=>tree();
-function node(d,tw,label,s){const on=s&&sel&&sel.id==s.id&&sel.t==s.t;return `<div class="node ${on?'sel':''}" style="--d:${d}" ${s?`onclick="pickById('${s.id}',true)"`:''}><span class="tw">${tw}</span>${label}</div>`;}
-function pickById(id,zoomTo){const l=D.lines.find(x=>x.id==id);if(l)sel={t:'line',id};else{const e=D.equipment.find(x=>x.id==id);sel=e?{t:'equip',id}:null;}
- tree();props();draw();if(sel&&zoomTo)zoomSel();}
-function zoomSel(){let pts=[];if(sel.t=='line')pts=D.lines.find(l=>l.id==sel.id).points;else{const e=D.equipment.find(x=>x.id==sel.id);pts=[e.lo,e.hi];}
- const c=[0,1,2].map(i=>(Math.min(...pts.map(p=>p[i]))+Math.max(...pts.map(p=>p[i])))/2);const sp=Math.max(...[0,1,2].map(i=>Math.max(...pts.map(p=>p[i]))-Math.min(...pts.map(p=>p[i]))),2000);
- ctr=c;span=sp*2.2;zoom=1;pan=[0,0];draw();}
-function props(){const P=document.getElementById('props');if(!sel){P.innerHTML='<div class="prop"><div>Selection</div><div>none</div></div>';return;}
+/* ---------------- editing ---------------- */
+async function doEdit(ops,comment){
+ if(!canEdit()){toast('You have view-only access',1);return}
+ const body=MODE==='project'?{base_rev:REV,ops,comment:comment||''}:{ops};
+ toast('Applying edit…');const r=await post('/edit',body);
+ if(r.status===409){toast('Someone else changed this project – reloading',1);await load(true);return}
+ if(!r.ok){toast('Edit rejected: '+(typeof r.j.detail==='string'?r.j.detail:JSON.stringify(r.j.detail)),1);return}
+ const j=r.j;toast(`Applied · ${j.rerouted.length} line(s) re-routed, ${j.kept} kept · QC ${j.status} (${j.errors} err)`,j.errors>0);await load(true);}
+async function undo(){
+ if(MODE==='project'){if(REV<=1){toast('Nothing to undo',1);return}const r=await post('/restore',{rev:REV-1,base_rev:REV});if(!r.ok){toast('Undo failed',1);return}toast('Restored revision '+(REV-1));}
+ else{const r=await post('/undo',{});if(!r.ok){toast('Nothing to undo',1);return}toast('Undone');}
+ await load(true);}
+function applyEquip(id){const g=n=>parseFloat($(n).value);const e=D.equipment.find(x=>x.id==id);const ops=[];
+ const x=g('ex'),y=g('ey'),z=g('ez');if(x!==e.position[0]||y!==e.position[1])ops.push({op:'move_equipment',id,x,y});if(z!==e.elevation)ops.push({op:'set_elevation',id,z});
+ if(!ops.length){toast('No change');return}doEdit(ops,'move '+id);}
+function nudge(id,dx,dy){doEdit([{op:'move_equipment',id,dx,dy}],'nudge '+id);}
+function applyLine(id){const nps=parseFloat($('ln').value),spec=$('ls').value,valves=$('lv').value.split(',').map(s=>s.trim()).filter(Boolean);
+ doEdit([{op:'set_line',id,nps,spec,valves}],'edit '+id);}
+function props(){const P=$('props'),E=$('edit');E.innerHTML='';if(!sel){P.innerHTML='<div class="prop"><div>Selection</div><div class="mut">none</div></div>';return;}
  let rows=[];
  if(sel.t=='line'){const l=D.lines.find(x=>x.id==sel.id),b=(D.bom||[]).find(x=>x.line==l.id)||{};
-  const bends=l.points.length-2;rows=[['Type','Pipe'],['Name',l.id],['From',l.from],['To',l.to],['NPS',l.nps+'"'],['OD / wall',(b.od_mm||'')+' / '+(b.wall_mm||'')+' mm'],['Spec',l.spec],['Service',l.service||'-'],
-  ['Routing',l.route],['Route length',(b.route_length_m||'')+' m'],['Pipe cut length',(b.pipe_cut_length_m||'')+' m'],['Elbows',bends],['Valves',(l.valves.map(v=>v[0]).join(', '))||'-'],['Weight',(b.weight_kg||'')+' kg'],['Points (mm)',l.points.map(p=>'['+fmt(p)+']').join(' ')]];}
- else{const e=D.equipment.find(x=>x.id==sel.id);rows=[['Type','Equipment'],['Name',e.id],['Kind',e.kind],['Zone',e.area],['Shape',e.shape],['Size (mm)',fmt(e.size)],['Position',fmt(e.position)],['Elevation',e.elevation],['Nozzles',e.nozzles.map(n=>n.id+' '+n.d).join('; ')]];}
- P.innerHTML='<div class="prop">'+rows.map(r=>`<div>${r[0]}</div><div style="word-break:break-word">${r[1]}</div>`).join('')+'</div>';}
-function bottom(){const t=document.getElementById('btabs');t.innerHTML=['Review','Spec','Output'].map(k=>`<button class="${k==btab?'on':''}" onclick="setB('${k}')">${k}${k=='Review'?' ('+D.qc.items.length+')':''}</button>`).join('');
- const B=document.getElementById('bbody');
- if(btab=='Review'){B.innerHTML=D.qc.items.length?`<table><tr><th>Sev</th><th>Check</th><th>Subject</th><th>Message</th></tr>${D.qc.items.map(i=>`<tr class="click" onclick="pickById('${i.subject.split('/')[0]}',true)"><td class="${i.severity=='error'?'e':'w'}">${i.severity}</td><td>${i.check}</td><td>${i.subject}</td><td>${i.message}</td></tr>`).join('')}</table>`:'<div style="padding:10px" class="ok">No findings. Checks run: '+D.qc.checks_run.join(', ')+'</div>';}
- else if(btab=='Spec'){const b=D.bom||[];B.innerHTML=`<table><tr><th>Line</th><th>NPS</th><th>Spec</th><th>OD</th><th>Wall</th><th>Route m</th><th>Cut m</th><th>Elbows</th><th>Flanges</th><th>Valves</th><th>kg</th></tr>${b.map(r=>`<tr class="click" onclick="pickById('${r.line}',true)"><td>${r.line}</td><td>${r.nps}</td><td>${r.spec}</td><td>${r.od_mm}</td><td>${r.wall_mm}</td><td>${r.route_length_m}</td><td>${r.pipe_cut_length_m}</td><td>${r.elbows_90_lr}</td><td>${r.flanges_wn}</td><td>${r.valves||'-'}</td><td>${r.weight_kg}</td></tr>`).join('')}</table>`;}
- else{const base=`/api/jobs/${JOB}/file/`;B.innerHTML='<div style="padding:10px;line-height:2"><a href="'+base+'plant.ifc">plant.ifc</a> · <a href="'+base+'plant.dxf">plant.dxf</a> · <a href="'+base+'isometrics.pdf">isometrics.pdf</a> · <a href="'+base+'bom.csv">bom.csv</a> · <a href="'+base+'qc_report.md">qc_report.md</a> · <a href="/api/jobs/'+JOB+'/zip"><b>all (zip)</b></a><br><span style="color:var(--mut)">'+D.qc.standard+' profile · design rules '+(D.qc.standard_validated?'validated':'UNVALIDATED placeholders')+'</span></div>';}}
+  rows=[['Type',l.route=='branch'?'Pipe (branch)':'Pipe'],['Name',l.id],['From',l.from],['To',l.to.startsWith('@')?(l.to=='@FREE'?'plant boundary':'tee into '+l.to.slice(1)):l.to],['NPS',l.nps+'"'],['OD / wall',(b.od_mm||'')+' / '+(b.wall_mm||'')+' mm'],['Spec',l.spec],['Service',l.service||'-'],
+  ['Routing',l.route],['Route length',(b.route_length_m||'')+' m'],['Pipe cut',(b.pipe_cut_length_m||'')+' m'],['Elbows',l.points.length-2],['Tees',b.tees||0],['Valves',l.valves.map(v=>v[0]).join(', ')||'-'],['Weight',(b.weight_kg||'')+' kg']];
+  if(canEdit())E.innerHTML=`<div class="edit"><h4>Edit line</h4><div class="row">NPS <input id="ln" value="${l.nps}"> Spec <input id="ls" value="${esc(l.spec)}"></div><div class="row">Valves <input class="w" id="lv" value="${l.valves.map(v=>v[0]).join(', ')}"></div><div class="row"><button class="btn pri" onclick="applyLine('${l.id}')">Apply &amp; re-check</button></div></div>`;}
+ else{const e=D.equipment.find(x=>x.id==sel.id);rows=[['Type','Equipment'],['Name',e.id],['Kind',e.kind],['Zone',e.area],['Shape',e.shape],['Size (mm)',fmt(e.size)],['Position',fmt(e.position)],['Elevation',e.elevation],['Nozzles',e.nozzles.map(n=>n.id.slice(-12)+' '+n.d).join('; ')]];
+  if(canEdit())E.innerHTML=`<div class="edit"><h4>Move equipment</h4><div class="row">X <input id="ex" value="${e.position[0]}"> Y <input id="ey" value="${e.position[1]}"></div><div class="row">Elev <input id="ez" value="${e.elevation}"></div>
+   <div class="row"><button class="btn pri" onclick="applyEquip('${e.id}')">Apply &amp; re-route</button></div>
+   <div class="row"><button class="btn" onclick="nudge('${e.id}',-1000,0)">← 1 m</button><button class="btn" onclick="nudge('${e.id}',1000,0)">1 m →</button><button class="btn" onclick="nudge('${e.id}',0,1000)">↑ 1 m</button><button class="btn" onclick="nudge('${e.id}',0,-1000)">↓ 1 m</button></div></div>`;}
+ P.innerHTML='<div class="prop">'+rows.map(r=>`<div>${r[0]}</div><div style="word-break:break-word">${esc(r[1])}</div>`).join('')+'</div>';}
+/* ---------------- tree ---------------- */
+function tree(){const f=$('filter').value.toLowerCase(),T=$('tree'),rows=[];const areas={};D.equipment.forEach(e=>(areas[e.area]=areas[e.area]||[]).push(e));
+ rows.push(node(0,'▾','SITE '+esc(D.name.slice(0,24)),null));
+ Object.keys(areas).forEach(a=>{const es=areas[a].filter(e=>!f||(e.id+a).toLowerCase().includes(f));if(!es.length)return;rows.push(node(1,'▾','ZONE '+esc(a),null));es.forEach(e=>rows.push(node(2,'▸','⬓ '+esc(e.id)+' ('+e.kind+')',{t:'equip',id:e.id})));});
+ const ls=D.lines.filter(l=>!f||(l.id+l.service+l.spec).toLowerCase().includes(f));
+ if(ls.length){rows.push(node(1,'▾','PIPING',null));ls.forEach(l=>rows.push(node(2,'',`<span class="dot" style="background:${colors[D.lines.indexOf(l)%8]}"></span> ${esc(l.id.length>26?'…'+l.id.slice(-24):l.id)} · ${l.nps}" ${esc(l.spec)}${l.route=='branch'?' ⑂':''}`,{t:'line',id:l.id})));}
+ if(D.steel.length)rows.push(node(1,'','STRUCTURE · pipe rack ('+D.steel.length+' members)',null));
+ D.failed.forEach(x=>rows.push(node(2,'','<span class="e">✕ '+esc(x.id)+' (not routed)</span>',null)));T.innerHTML=rows.join('');}
+$('filter').oninput=()=>tree();
+function node(d,tw,label,s){const on=s&&sel&&sel.id==s.id;return `<div class="node ${on?'sel':''}" style="--d:${d}" ${s?`onclick="pickById('${s.id}',true)"`:''}><span class="tw">${tw}</span>${label}</div>`;}
+function pickById(id,zoomTo){const l=D.lines.find(x=>x.id==id);if(l)sel={t:'line',id};else{const e=D.equipment.find(x=>x.id==id);sel=e?{t:'equip',id}:null;}tree();props();draw();if(sel&&zoomTo)zoomSel();}
+function zoomSel(){let pts;if(sel.t=='line')pts=D.lines.find(l=>l.id==sel.id).points;else{const e=D.equipment.find(x=>x.id==sel.id);pts=[e.lo,e.hi];}
+ zoomPts(pts);}
+function zoomPts(pts){const c=[0,1,2].map(i=>(Math.min(...pts.map(p=>p[i]))+Math.max(...pts.map(p=>p[i])))/2);const sp=Math.max(...[0,1,2].map(i=>Math.max(...pts.map(p=>p[i]))-Math.min(...pts.map(p=>p[i]))),2000);ctr=c;span=sp*2.2;zoom=1;pan=[0,0];draw();}
+/* ---------------- bottom panels ---------------- */
+function bottom(){const tabsB=['Review','Clashes','Markups','History','Spec','Output'];
+ $('btabs').innerHTML=tabsB.map(k=>`<button class="${k==btab?'on':''}" onclick="setB('${k}')">${k}${k=='Review'?' ('+D.qc.items.length+')':k=='Clashes'?' ('+CLASH.length+')':k=='Markups'?' ('+MARKS.filter(m=>m.status=='open').length+')':''}</button>`).join('');
+ const B=$('bbody');
+ if(btab=='Review')B.innerHTML=D.qc.items.length?`<table><tr><th>Sev</th><th>Check</th><th>Subject</th><th>Message</th></tr>${D.qc.items.map(i=>`<tr class="click" onclick="pickById('${esc(i.subject.split('/')[0])}',true)"><td class="${i.severity=='error'?'e':'w'}">${i.severity}</td><td>${i.check}</td><td>${esc(i.subject)}</td><td>${esc(i.message)}</td></tr>`).join('')}</table>`:'<div style="padding:10px" class="ok">No findings. Checks run: '+D.qc.checks_run.join(', ')+'</div>';
+ else if(btab=='Clashes')B.innerHTML=CLASH.length?`<table><tr><th>ID</th><th>Type</th><th>Items</th><th>Location (mm)</th><th>Finding</th><th>Status</th><th></th></tr>${CLASH.map((c,i)=>`<tr class="click" onclick="gotoClash(CLASH[${i}])"><td>${esc(c.id)}</td><td class="${c.type=='hard'?'e':'w'}">${c.type}</td><td>${esc(c.item_a)}${c.item_b?' / '+esc(c.item_b):''}</td><td>${c.x==null?'':Math.round(c.x)+', '+Math.round(c.y)+', '+Math.round(c.z)}</td><td>${esc(c.message)}</td><td>${c.status}${c.comment?' – '+esc(c.comment):''}</td><td>${MODE==='project'&&canEdit()&&c.type=='soft'?`<button class="btn" onclick="event.stopPropagation();waive(${i})">${c.status=='waived'?'Re-open':'Waive'}</button>`:''}</td></tr>`).join('')}</table>`:'<div style="padding:10px" class="ok">No clashes.</div>';
+ else if(btab=='Markups')B.innerHTML=MODE!=='project'?'<div style="padding:10px" class="mut">Markups are available in team projects (Home → Team projects).</div>':(MARKS.length?MARKS.map(m=>`<div class="mk"><b>#${m.id}</b> ${esc(m.element||'(point)')} · <span class="${m.status=='open'?'w':'ok'}">${m.status}</span> · ${esc(m.author)} (rev ${m.rev})<br>${esc(m.text)}${m.comments.map(c=>`<div class="c">↳ ${esc(c.author)}: ${esc(c.text)}</div>`).join('')}<div style="margin-top:3px"><button class="btn" onclick="markGoto(${m.id})">Show</button> <button class="btn" onclick="markComment(${m.id})">Reply</button> ${canEdit()?`<button class="btn" onclick="markStatus(${m.id},'${m.status=='open'?'resolved':'open'}')">${m.status=='open'?'Resolve':'Re-open'}</button>`:''}</div></div>`).join(''):'<div style="padding:10px" class="mut">No markups. Review tab → Add markup, then click an item.</div>');
+ else if(btab=='History')B.innerHTML=MODE==='project'?`<table><tr><th>Rev</th><th>Kind</th><th>By</th><th>When</th><th>Comment</th><th>QC</th><th></th></tr>${HIST.map(r=>`<tr><td>${r.rev}${r.rev==REV?' ●':''}</td><td>${r.kind}</td><td>${esc(r.author)}</td><td>${new Date(r.time*1000).toLocaleString()}</td><td>${esc(r.comment)}</td><td>${r.summary.status||''} ${r.summary.errors??''}e</td><td>${r.rev!=REV&&canEdit()?`<button class="btn" onclick="restore(${r.rev})">Restore</button>`:''}</td></tr>`).join('')}</table>`
+  :(HIST.length?`<table><tr><th>#</th><th>By</th><th>Edit</th></tr>${HIST.map(h=>`<tr><td>${h.version}</td><td>${esc(h.author)}</td><td>${esc(JSON.stringify(h.ops))}</td></tr>`).join('')}</table>`:'<div style="padding:10px" class="mut">No edits yet.</div>');
+ else if(btab=='Spec'){const b=D.bom||[];B.innerHTML=`<table><tr><th>Line</th><th>NPS</th><th>Spec</th><th>OD</th><th>Wall</th><th>Route m</th><th>Cut m</th><th>Elbows</th><th>Tees</th><th>Flanges</th><th>Valves</th><th>kg</th></tr>${b.map(r=>`<tr class="click" onclick="pickById('${esc(r.line)}',true)"><td>${esc(r.line)}</td><td>${r.nps}</td><td>${esc(r.spec)}</td><td>${r.od_mm}</td><td>${r.wall_mm}</td><td>${r.route_length_m}</td><td>${r.pipe_cut_length_m}</td><td>${r.elbows_90_lr}</td><td>${r.tees||0}</td><td>${r.flanges_wn}</td><td>${r.valves||'-'}</td><td>${r.weight_kg}</td></tr>`).join('')}</table>`;}
+ else{const f=BASE+'/file/';B.innerHTML='<div style="padding:10px;line-height:2"><a href="'+f+'plant.ifc">plant.ifc</a> · <a href="'+f+'plant.step">plant.step</a> · <a href="'+f+'plant.dxf">plant.dxf</a> · <a href="'+f+'isometrics.pdf">isometrics.pdf</a> · <a href="'+f+'bom.csv">bom.csv</a> · <a href="'+f+'qc_report.md">qc_report.md</a> · <a href="'+BASE+'/zip"><b>all (zip)</b></a><br><span class="mut">'+D.qc.standard+' profile · design rules '+(D.qc.standard_validated?'validated':'UNVALIDATED placeholders')+'</span></div>';}}
 function setB(k){btab=k;if(D)bottom();}
-/* ---------- 3D ---------- */
-function rot(p){let x=p[0]-ctr[0],y=p[1]-ctr[1],z=p[2]-ctr[2];let x1=x*Math.cos(az)-y*Math.sin(az),y1=x*Math.sin(az)+y*Math.cos(az);
- let y2=y1*Math.cos(el)-z*Math.sin(el),z2=y1*Math.sin(el)+z*Math.cos(el);return[x1,y2,z2];}
+function gotoClash(c){if(c.x!=null){pin=[c.x,c.y,c.z];zoomPts([[c.x-1500,c.y-1500,c.z-1500],[c.x+1500,c.y+1500,c.z+1500]]);}const a=c.item_a;if(a)pickById(a,false);draw();}
+async function waive(i){const c=CLASH[i];if(c.status=='waived'){await post('/clashes/status',{key:c.key,status:'open'});toast('Re-opened');}
+ else{const t=prompt('Reason for waiving this warning (required):');if(!t)return;const r=await post('/clashes/status',{key:c.key,status:'waived',comment:t});if(!r.ok){toast(r.j.detail||'Failed',1);return}toast('Waived');}await load(true);}
+async function restore(rev){if(!confirm('Restore revision '+rev+' as a new revision?'))return;const r=await post('/restore',{rev,base_rev:REV});if(!r.ok){toast('Restore failed: '+JSON.stringify(r.j.detail),1);return}toast('Restored revision '+rev);await load(true);}
+async function markComment(id){const t=prompt('Reply:');if(!t)return;await post(`/markups/${id}/comment`,{text:t});await load(true);}
+async function markStatus(id,s){await post(`/markups/${id}/status`,{status:s});await load(true);}
+function markGoto(id){const m=MARKS.find(x=>x.id==id);if(m.x!=null){pin=[m.x,m.y,m.z];zoomPts([[m.x-1500,m.y-1500,m.z-1500],[m.x+1500,m.y+1500,m.z+1500]]);}else if(m.element)pickById(m.element,true);}
+async function newMarkup(h,mx,my){const e=h.t=='equip'?D.equipment.find(x=>x.id==h.id):null;let xyz;
+ if(h.t=='line'){const A=h.a,B=h.b,L=(B[0]-A[0])**2+(B[1]-A[1])**2;let t=L?((mx-A[0])*(B[0]-A[0])+(my-A[1])*(B[1]-A[1]))/L:0;t=Math.max(0,Math.min(1,t));const l=D.lines.find(x=>x.id==h.id);const a=l.points[h.k],b=l.points[h.k+1];xyz=[0,1,2].map(i=>a[i]+(b[i]-a[i])*t);}
+ else xyz=[(e.lo[0]+e.hi[0])/2,(e.lo[1]+e.hi[1])/2,e.hi[2]];
+ const t=prompt('Markup on '+h.id+':');if(!t)return;const r=await post('/markups',{element:h.id,xyz,text:t});if(!r.ok){toast('Could not save markup',1);return}toast('Markup added');addMark=false;ribbon();await load(true);setB('Markups');}
+/* ---------------- 3D ---------------- */
+function rot(p){let x=p[0]-ctr[0],y=p[1]-ctr[1],z=p[2]-ctr[2];let x1=x*Math.cos(az)-y*Math.sin(az),y1=x*Math.sin(az)+y*Math.cos(az);let y2=y1*Math.cos(el)-z*Math.sin(el),z2=y1*Math.sin(el)+z*Math.cos(el);return[x1,y2,z2];}
 function pr(p){const q=rot(p),s=Math.min(cv.width,cv.height)/span*0.8*zoom;return[cv.width/2+pan[0]+q[0]*s,cv.height/2+pan[1]-q[2]*s,q[1],s];}
 function line(a,b,col,w){const A=pr(a),B=pr(b);ctx.strokeStyle=col;ctx.lineWidth=w;ctx.beginPath();ctx.moveTo(A[0],A[1]);ctx.lineTo(B[0],B[1]);ctx.stroke();}
-function box(lo,hi,col,w){const c=[];for(let i=0;i<8;i++)c.push([i&1?hi[0]:lo[0],i&2?hi[1]:lo[1],i&4?hi[2]:lo[2]]);
- [[0,1],[2,3],[4,5],[6,7],[0,2],[1,3],[4,6],[5,7],[0,4],[1,5],[2,6],[3,7]].forEach(e=>line(c[e[0]],c[e[1]],col,w));}
+function box(lo,hi,col,w){const c=[];for(let i=0;i<8;i++)c.push([i&1?hi[0]:lo[0],i&2?hi[1]:lo[1],i&4?hi[2]:lo[2]]);[[0,1],[2,3],[4,5],[6,7],[0,2],[1,3],[4,6],[5,7],[0,4],[1,5],[2,6],[3,7]].forEach(e=>line(c[e[0]],c[e[1]],col,w));}
 function ring(c,r,ax,z0,z1,col,w){for(const z of [z0,z1]){let pv=null;for(let k=0;k<=24;k++){const a=k/24*Math.PI*2;const p=ax=='z'?[c[0]+r*Math.cos(a),c[1]+r*Math.sin(a),z]:[z,c[1]+r*Math.cos(a),c[2]+r*Math.sin(a)];if(pv)line(pv,p,col,w);pv=p;}}}
 function drawEquip(e,col,w){const c=[(e.lo[0]+e.hi[0])/2,(e.lo[1]+e.hi[1])/2,(e.lo[2]+e.hi[2])/2];
  if(e.shape=='cylinder_v'){const r=(e.hi[0]-e.lo[0])/2;ring(c,r,'z',e.lo[2],e.hi[2],col,w);for(let k=0;k<8;k++){const a=k/8*6.283,x=c[0]+r*Math.cos(a),y=c[1]+r*Math.sin(a);line([x,y,e.lo[2]],[x,y,e.hi[2]],col,w);}}
- else if(e.shape=='cylinder_h'){const r=(e.hi[1]-e.lo[1])/2;ring(c,r,'x',e.lo[0],e.hi[0],col,w);for(let k=0;k<8;k++){const a=k/8*6.283,y=c[1]+r*Math.cos(a),z=c[2]+r*Math.sin(a);line([e.lo[0],y,z],[e.hi[0],y,z],col,w);}}
- else box(e.lo,e.hi,col,w);}
+ else if(e.shape=='cylinder_h'){const r=(e.hi[1]-e.lo[1])/2;ring(c,r,'x',e.lo[0],e.hi[0],col,w);for(let k=0;k<8;k++){const a=k/8*6.283,y=c[1]+r*Math.cos(a),z=c[2]+r*Math.sin(a);line([e.lo[0],y,z],[e.hi[0],y,z],col,w);}}else box(e.lo,e.hi,col,w);}
 let hits=[];
+function marker(p,col,txt){const q=pr(p);ctx.fillStyle=col;ctx.beginPath();ctx.moveTo(q[0],q[1]-9);ctx.lineTo(q[0]+7,q[1]);ctx.lineTo(q[0],q[1]+9);ctx.lineTo(q[0]-7,q[1]);ctx.closePath();ctx.fill();ctx.strokeStyle='#000';ctx.lineWidth=1;ctx.stroke();if(txt){ctx.fillStyle='#fff';ctx.font='11px Arial';ctx.fillText(txt,q[0]+10,q[1]-8);}}
 function draw(){if(!D)return;const r=cv.getBoundingClientRect();cv.width=r.width;cv.height=r.height;ctx.clearRect(0,0,cv.width,cv.height);hits=[];
- if(layers.grid){const g=Math.max(1000,Math.ceil(span/12/1000)*1000);for(let x=Math.floor(D._mn[0]/g)*g;x<=D._mx[0]+g;x+=g)line([x,D._mn[1]-g,0],[x,D._mx[1]+g,0],'#233',1);
-  for(let y=Math.floor(D._mn[1]/g)*g;y<=D._mx[1]+g;y+=g)line([D._mn[0]-g,y,0],[D._mx[0]+g,y,0],'#233',1);}
+ if(layers.grid){const g=Math.max(1000,Math.ceil(span/12/1000)*1000);for(let x=Math.floor(D._mn[0]/g)*g;x<=D._mx[0]+g;x+=g)line([x,D._mn[1]-g,0],[x,D._mx[1]+g,0],'#233',1);for(let y=Math.floor(D._mn[1]/g)*g;y<=D._mx[1]+g;y+=g)line([D._mn[0]-g,y,0],[D._mx[0]+g,y,0],'#233',1);}
  if(layers.steel)D.steel.forEach(s=>box(s.lo,s.hi,'#5d6b80',1));
- if(layers.equip)D.equipment.forEach(e=>{const on=sel&&sel.t=='equip'&&sel.id==e.id;drawEquip(e,on?'#ffd400':'#9ab',on?2.5:1);
-  const c=pr([(e.lo[0]+e.hi[0])/2,(e.lo[1]+e.hi[1])/2,e.hi[2]]);ctx.fillStyle=on?'#ffd400':'#cde';ctx.font='11px Arial';ctx.fillText(e.id,c[0]-12,c[1]-6);
+ if(layers.equip)D.equipment.forEach(e=>{const on=sel&&sel.t=='equip'&&sel.id==e.id;drawEquip(e,on?'#ffd400':'#9ab',on?2.5:1);const c=pr([(e.lo[0]+e.hi[0])/2,(e.lo[1]+e.hi[1])/2,e.hi[2]]);ctx.fillStyle=on?'#ffd400':'#cde';ctx.font='11px Arial';ctx.fillText(e.id.length>14?e.id.slice(-12):e.id,c[0]-12,c[1]-6);
   const a=pr(e.lo),b=pr(e.hi),p1=pr([e.lo[0],e.lo[1],e.hi[2]]),p2=pr([e.hi[0],e.hi[1],e.lo[2]]);const xs=[a[0],b[0],p1[0],p2[0]],ys=[a[1],b[1],p1[1],p2[1]];
   hits.push({t:'equip',id:e.id,box:[Math.min(...xs),Math.min(...ys),Math.max(...xs),Math.max(...ys)],d:pr([(e.lo[0]+e.hi[0])/2,(e.lo[1]+e.hi[1])/2,(e.lo[2]+e.hi[2])/2])[2]});
   if(layers.noz)e.nozzles.forEach(n=>{const p=pr(n.p);ctx.fillStyle='#fff';ctx.fillRect(p[0]-2,p[1]-2,4,4);});});
- if(layers.pipe){const segs=[];D.lines.forEach((l,i)=>{for(let k=0;k<l.points.length-1;k++)segs.push({a:l.points[k],b:l.points[k+1],l,i,d:(pr(l.points[k])[2]+pr(l.points[k+1])[2])/2});});
-  segs.sort((p,q)=>q.d-p.d);
-  segs.forEach(s=>{const on=sel&&sel.t=='line'&&sel.id==s.l.id;const sc=pr(s.a)[3];const A=pr(s.a),B=pr(s.b);
-   if(on){line(s.a,s.b,'#fff',Math.max(4,s.l.r*2*sc+3));}line(s.a,s.b,on?'#ffd400':colors[s.i%8],Math.max(2,s.l.r*2*sc));hits.push({t:'line',id:s.l.id,a:A,b:B});});
+ if(layers.pipe){const segs=[];D.lines.forEach((l,i)=>{for(let k=0;k<l.points.length-1;k++)segs.push({a:l.points[k],b:l.points[k+1],l,i,k,d:(pr(l.points[k])[2]+pr(l.points[k+1])[2])/2});});segs.sort((p,q)=>q.d-p.d);
+  segs.forEach(s=>{const on=sel&&sel.t=='line'&&sel.id==s.l.id;const sc=pr(s.a)[3];const A=pr(s.a),B=pr(s.b);if(on)line(s.a,s.b,'#fff',Math.max(4,s.l.r*2*sc+3));line(s.a,s.b,on?'#ffd400':colors[s.i%8],Math.max(2,s.l.r*2*sc));hits.push({t:'line',id:s.l.id,k:s.k,a:A,b:B});});
   D.lines.forEach((l,i)=>l.points.slice(1,-1).forEach(p=>{const q=pr(p);ctx.fillStyle=colors[i%8];ctx.beginPath();ctx.arc(q[0],q[1],Math.max(2,l.r*1.1*q[3]),0,7);ctx.fill();}));
-  D.lines.forEach(l=>l.valves.forEach(v=>{const q=pr(v[1]);ctx.fillStyle='#fc0';ctx.fillRect(q[0]-5,q[1]-5,10,10);}));}}
+  D.lines.forEach(l=>l.valves.forEach(v=>{const q=pr(v[1]);ctx.fillStyle='#fc0';ctx.fillRect(q[0]-5,q[1]-5,10,10);}));
+  D.lines.filter(l=>l.route=='branch').forEach(l=>{const q=pr(l.points[l.points.length-1]);ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(q[0],q[1],4,0,7);ctx.fill();});}
+ if(layers.marks)MARKS.filter(m=>m.x!=null&&m.status=='open').forEach(m=>marker([m.x,m.y,m.z],'#ff9800','#'+m.id));
+ CLASH.filter(c=>c.x!=null&&c.status!='waived').forEach(c=>marker([c.x,c.y,c.z],c.type=='hard'?'#ff3b30':'#ffcc00'));
+ if(pin){const q=pr(pin);ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.beginPath();ctx.arc(q[0],q[1],14,0,7);ctx.stroke();}}
 function segDist(px,py,a,b){const dx=b[0]-a[0],dy=b[1]-a[1],L=dx*dx+dy*dy;let t=L?((px-a[0])*dx+(py-a[1])*dy)/L:0;t=Math.max(0,Math.min(1,t));return Math.hypot(px-a[0]-t*dx,py-a[1]-t*dy);}
-function pickAt(x,y){let best=null,bd=9;for(const h of hits)if(h.t=='line'){const d=segDist(x,y,h.a,h.b);if(d<bd){bd=d;best=h;}}
- if(best)return best;for(const h of hits)if(h.t=='equip'&&x>=h.box[0]&&x<=h.box[2]&&y>=h.box[1]&&y<=h.box[3]&&(!best||h.d<best.d))best=h;return best;}
-let drag=null,moved=false;
-cv.onmousedown=e=>{drag={x:e.clientX,y:e.clientY,s:e.shiftKey};moved=false;};
-addEventListener('mouseup',e=>{if(drag&&!moved&&e.target===cv){const r=cv.getBoundingClientRect(),h=pickAt(e.clientX-r.left,e.clientY-r.top);if(h)pickById(h.id,false);else{sel=null;tree();props();draw();}}drag=null;});
-addEventListener('mousemove',e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.abs(dx)+Math.abs(dy)>2)moved=true;drag.x=e.clientX;drag.y=e.clientY;
- if(drag.s){pan[0]+=dx;pan[1]+=dy;}else{az+=dx*0.008;el=Math.max(-1.5,Math.min(1.5,el+dy*0.008));}draw();});
-cv.ondblclick=e=>{const r=cv.getBoundingClientRect(),h=pickAt(e.clientX-r.left,e.clientY-r.top);if(h){pickById(h.id,true);}};
-cv.onwheel=e=>{e.preventDefault();zoom*=e.deltaY<0?1.1:0.9;draw();};
-addEventListener('resize',draw);
+function pickAt(x,y){let best=null,bd=9;for(const h of hits)if(h.t=='line'){const d=segDist(x,y,h.a,h.b);if(d<bd){bd=d;best=h;}}if(best)return best;for(const h of hits)if(h.t=='equip'&&x>=h.box[0]&&x<=h.box[2]&&y>=h.box[1]&&y<=h.box[3]&&(!best||h.d<best.d))best=h;return best;}
+let drag=null,moved=false;cv.onmousedown=e=>{drag={x:e.clientX,y:e.clientY,s:e.shiftKey};moved=false;};
+addEventListener('mouseup',e=>{if(drag&&!moved&&e.target===cv){const r=cv.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top,h=pickAt(mx,my);
+ if(addMark&&h){newMarkup(h,mx,my);}else if(h){pin=null;pickById(h.id,false);}else{sel=null;pin=null;tree();props();draw();}}drag=null;});
+addEventListener('mousemove',e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.abs(dx)+Math.abs(dy)>2)moved=true;drag.x=e.clientX;drag.y=e.clientY;if(drag.s){pan[0]+=dx;pan[1]+=dy;}else{az+=dx*0.008;el=Math.max(-1.5,Math.min(1.5,el+dy*0.008));}draw();});
+cv.ondblclick=e=>{const r=cv.getBoundingClientRect(),h=pickAt(e.clientX-r.left,e.clientY-r.top);if(h)pickById(h.id,true);};
+cv.onwheel=e=>{e.preventDefault();zoom*=e.deltaY<0?1.1:0.9;draw();};addEventListener('resize',draw);
+/* ---------------- live updates (project mode) ---------------- */
+setInterval(async()=>{if(MODE!=='project'||!D)return;const r=await fetch(BASE+'/head');if(!r.ok)return;const j=await r.json();
+ if(j.rev>REV){const b=$('banner');b.style.display='block';b.innerHTML=`Revision ${j.rev} is available (you have ${REV}). <button class="btn" onclick="$('banner').style.display='none';load(true)">Reload</button>`;}},5000);
+(async()=>{if(MODE==='project'){const m=await fetch('/api/auth/me');if(m.status===401){location.href='/?login=1';return}ME=await m.json();$('who').textContent=ME.username+' ('+ME.role+')';}await load(false);})();
 </script></body></html>
