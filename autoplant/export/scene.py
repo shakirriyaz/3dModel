@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from ..model import Project, Route
 from .. import rack as rackmod
-from ..catalog import od
 
 
 def scene_dict(prj: Project, routes: dict[str, Route], stamp: str, qc=None, bom=None) -> dict:
@@ -17,7 +16,8 @@ def scene_dict(prj: Project, routes: dict[str, Route], stamp: str, qc=None, bom=
     for ln in prj.lines:
         rt = routes.get(ln.id)
         if rt and rt.status == "routed":
-            lines.append({"id": ln.id, "nps": ln.nps, "r": od(ln.nps) / 2, "points": rt.points,
+            dm = prj.dims(ln)
+            lines.append({"id": ln.id, "nps": ln.nps, "r": dm.r, "od": dm.od, "takeoff": dm.takeoff, "points": rt.points,
                           "from": ln.from_, "to": ln.to, "spec": ln.spec, "service": ln.service,
                           "route": rt.note or "open routing",
                           "valves": [[v, p] for v, p in rt.valve_positions]})

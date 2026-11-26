@@ -36,7 +36,7 @@ a{color:var(--acc)}
 @media(max-width:900px){#left{width:170px}#right{display:none}}
 </style></head><body>
 <div id="top"><b>AutoPlant</b><span id="proj"></span><span id="badge" class="badge"></span><span id="rev" class="mut"></span><span style="flex:1"></span><span id="who" class="mut"></span><a href="/">Home</a></div>
-<div id="banner"></div>
+<div id="banner"></div><input type="file" id="specfile" accept=".zip,.xlsx,.xlsm,.json" style="display:none">
 <div id="tabs"></div><div id="ribbon"></div>
 <div id="main">
  <div id="left" class="side"><h3>Model Explorer</h3><input id="filter" placeholder="Filter (tag, line, area)…"><div id="tree"></div></div>
@@ -47,13 +47,14 @@ a{color:var(--acc)}
 <script>
 const MODE="__MODE__",ID="__ID__";
 const BASE=MODE==='project'?`/api/projects/${ID}`:`/api/jobs/${ID}`;
-let D=null,ME=null,ROLE='viewer',REV=0,CLASH=[],MARKS=[],HIST=[],addMark=false;
+let D=null,ME=null,ROLE='viewer',REV=0,CLASH=[],MARKS=[],HIST=[],addMark=false,SPEC=null,SPECERR=null;
 const cv=document.getElementById('c'),ctx=cv.getContext('2d');
 const colors=['#4fc3f7','#ffb74d','#81c784','#ba68c8','#f06292','#fff176','#4db6ac','#a1887f'];
 let az=-0.9,el=0.55,zoom=1,pan=[0,0],ctr=[0,0,0],span=1,sel=null,pin=null,layers={equip:true,pipe:true,steel:true,noz:true,grid:true,marks:true};
 let tab='Model',btab='Review';
 const TABS={Model:['Iso','Plan','Front','Side','Fit','|','Equipment','Piping','Rack steel','Nozzles','Grid'],
- Edit:['Undo last edit','Re-route selected','Delete selected line'],Spec:[],Draw:['Isometrics PDF','DXF plan','Isometric (selected line)'],
+ Edit:['Undo last edit','Re-route selected','Delete selected line'],Draw:['Isometrics PDF','DXF plan','Isometric (selected line)'],
+ Spec:['Import spec…','Map class codes…','Spec template (zip)','Export spec (JSON)','Use built-in catalogue'],
  Review:['Add markup','Clash report (HTML)','Clash report (CSV)','Zoom to first issue'],Output:['All files (zip)','IFC','STEP','BOM CSV','QC report']};
 const $=id=>document.getElementById(id);
 const fmt=v=>Array.isArray(v)?v.map(x=>Math.round(x)).join(', '):v;
@@ -71,6 +72,7 @@ async function load(keepSel){
   CLASH=(await api('/clashes')).j||[];MARKS=(await api('/markups')).j||[];HIST=(await api('/revisions')).j||[];}
  else{ROLE='editor';$('proj').textContent=D.name;HIST=((await api('/history')).j||[]).slice().reverse();
   CLASH=(D.qc.items||[]).filter(i=>/clash|overlap|tee/.test(i.check)).map(i=>({id:i.key.slice(0,12),key:i.key,type:i.severity=='error'?'hard':'soft',check:i.check,item_a:i.subject.split('/')[0],item_b:i.subject.split('/')[1]||'',x:i.at?i.at[0]:null,y:i.at?i.at[1]:null,z:i.at?i.at[2]:null,message:i.message,status:'open'}));}
+ SPEC=(await api('/spec')).j;
  const q=D.qc,b=$('badge');b.textContent='QC '+(q.passed?'PASSED':'FAILED')+' · '+q.errors+' err · '+q.warnings+' warn';b.className='badge '+(q.passed?'ok':'bad');
  if(!keepSel||!D.__init){const all=[...D.equipment.flatMap(e=>[e.lo,e.hi]),...D.lines.flatMap(l=>l.points),...D.steel.flatMap(e=>[e.lo,e.hi])];
   const mn=[0,1,2].map(i=>Math.min(...all.map(p=>p[i]))),mx=[0,1,2].map(i=>Math.max(...all.map(p=>p[i])));ctr=mn.map((v,i)=>(v+mx[i])/2);span=Math.max(...mx.map((v,i)=>v-mn[i]));D.__init=1;}
@@ -86,12 +88,32 @@ function act(a){const f=BASE+'/file/';
  'Isometrics PDF':()=>open(f+'isometrics.pdf'),'DXF plan':()=>open(f+'plant.dxf'),'IFC':()=>open(f+'plant.ifc'),'STEP':()=>open(f+'plant.step'),'BOM CSV':()=>open(f+'bom.csv'),'QC report':()=>open(f+'qc_report.md'),
  'All files (zip)':()=>open(BASE+'/zip'),
  'Isometric (selected line)':()=>{if(sel&&sel.t=='line')open(f+'iso/'+sel.id+'.svg');else toast('Select a line first',1)},
+ 'Import spec…':()=>{if(!canEdit()){toast('You have view-only access',1);return}$('specfile').click()},
+ 'Map class codes…':mapCodes,'Spec template (zip)':()=>open('/api/spec/template'),'Export spec (JSON)':()=>open(BASE+'/spec/export'),
+ 'Use built-in catalogue':clearSpec,
  'Undo last edit':undo,'Re-route selected':()=>{if(sel&&sel.t=='line')doEdit([{op:'reroute',id:sel.id}],'re-route '+sel.id);else toast('Select a line first',1)},
  'Delete selected line':()=>{if(sel&&sel.t=='line'&&confirm('Delete line '+sel.id+' (and its branches)?'))doEdit([{op:'delete_line',id:sel.id}],'delete '+sel.id);else if(!(sel&&sel.t=='line'))toast('Select a line first',1)},
  'Add markup':()=>{addMark=!addMark;toast(addMark?'Click an item in the 3D view to place a markup':'Markup mode off');ribbon()},
  'Clash report (HTML)':()=>open(MODE==='project'?BASE+'/clash_report.html':f+'clash_report.html'),'Clash report (CSV)':()=>open(MODE==='project'?BASE+'/clash_report.csv':f+'clash_report.csv'),
  'Zoom to first issue':()=>{const c=CLASH[0];if(c)gotoClash(c)}};(M[a]||(()=>{}))();}
 function tog(k){layers[k]=!layers[k];draw();}
+/* ---------------- piping spec ---------------- */
+async function uploadSpec(file){
+ const fd=new FormData();fd.append('file',file);if(MODE==='project'){fd.append('base_rev',REV);fd.append('comment','imported spec '+file.name);}
+ toast('Importing spec…');const r=await fetch(BASE+'/spec',{method:'POST',body:fd});let j=null;try{j=await r.json()}catch(e){}
+ if(r.status===401){location.href='/?login=1';return}
+ if(r.status===409){toast('Someone else changed this project – reloading',1);await load(true);return}
+ if(!r.ok){const d=j&&j.detail;SPECERR=d&&d.issues?d:{message:String(d||'import failed'),issues:[]};toast('Spec import failed – see the Spec panel',1);setB('Spec');return}
+ SPECERR=null;toast(`Spec imported · ${j.rerouted.length} line(s) re-routed · QC ${j.status} (${j.errors} err)`,j.errors>0);await load(true);setB('Spec');}
+async function clearSpec(){if(!canEdit()){toast('You have view-only access',1);return}if(!confirm('Go back to the built-in generic catalogue?'))return;
+ const r=MODE==='project'?await fetch(BASE+'/spec',{method:'POST',body:(()=>{const f=new FormData();f.append('clear','true');f.append('base_rev',REV);return f})()}):await fetch(BASE+'/spec/clear',{method:'POST'});
+ if(!r.ok){toast('Could not clear the spec',1);return}toast('Using the built-in generic catalogue');await load(true);}
+async function mapCodes(){if(!canEdit()){toast('You have view-only access',1);return}
+ if(!SPEC.imported){toast('Import a spec first',1);return}
+ const unk=SPEC.unknown_classes;if(!unk.length){toast('All line classes exist in the spec');return}
+ const avail=Object.keys(SPEC.classes).join(', ');const ops=[];
+ for(const u of unk){const to=prompt(`Line class "${u}" (${SPEC.lines_per_class[u]} lines) is not in the spec.\nMap it to which class? (${avail}) – cancel to skip`);if(to)ops.push({op:'remap_spec',from:u,to:to.trim()});}
+ if(ops.length)await doEdit(ops,'map class codes');}
 /* ---------------- editing ---------------- */
 async function doEdit(ops,comment){
  if(!canEdit()){toast('You have view-only access',1);return}
@@ -144,8 +166,17 @@ function bottom(){const tabsB=['Review','Clashes','Markups','History','Spec','Ou
  else if(btab=='Markups')B.innerHTML=MODE!=='project'?'<div style="padding:10px" class="mut">Markups are available in team projects (Home → Team projects).</div>':(MARKS.length?MARKS.map(m=>`<div class="mk"><b>#${m.id}</b> ${esc(m.element||'(point)')} · <span class="${m.status=='open'?'w':'ok'}">${m.status}</span> · ${esc(m.author)} (rev ${m.rev})<br>${esc(m.text)}${m.comments.map(c=>`<div class="c">↳ ${esc(c.author)}: ${esc(c.text)}</div>`).join('')}<div style="margin-top:3px"><button class="btn" onclick="markGoto(${m.id})">Show</button> <button class="btn" onclick="markComment(${m.id})">Reply</button> ${canEdit()?`<button class="btn" onclick="markStatus(${m.id},'${m.status=='open'?'resolved':'open'}')">${m.status=='open'?'Resolve':'Re-open'}</button>`:''}</div></div>`).join(''):'<div style="padding:10px" class="mut">No markups. Review tab → Add markup, then click an item.</div>');
  else if(btab=='History')B.innerHTML=MODE==='project'?`<table><tr><th>Rev</th><th>Kind</th><th>By</th><th>When</th><th>Comment</th><th>QC</th><th></th></tr>${HIST.map(r=>`<tr><td>${r.rev}${r.rev==REV?' ●':''}</td><td>${r.kind}</td><td>${esc(r.author)}</td><td>${new Date(r.time*1000).toLocaleString()}</td><td>${esc(r.comment)}</td><td>${r.summary.status||''} ${r.summary.errors??''}e</td><td>${r.rev!=REV&&canEdit()?`<button class="btn" onclick="restore(${r.rev})">Restore</button>`:''}</td></tr>`).join('')}</table>`
   :(HIST.length?`<table><tr><th>#</th><th>By</th><th>Edit</th></tr>${HIST.map(h=>`<tr><td>${h.version}</td><td>${esc(h.author)}</td><td>${esc(JSON.stringify(h.ops))}</td></tr>`).join('')}</table>`:'<div style="padding:10px" class="mut">No edits yet.</div>');
- else if(btab=='Spec'){const b=D.bom||[];B.innerHTML=`<table><tr><th>Line</th><th>NPS</th><th>Spec</th><th>OD</th><th>Wall</th><th>Route m</th><th>Cut m</th><th>Elbows</th><th>Tees</th><th>Flanges</th><th>Valves</th><th>kg</th></tr>${b.map(r=>`<tr class="click" onclick="pickById('${esc(r.line)}',true)"><td>${esc(r.line)}</td><td>${r.nps}</td><td>${esc(r.spec)}</td><td>${r.od_mm}</td><td>${r.wall_mm}</td><td>${r.route_length_m}</td><td>${r.pipe_cut_length_m}</td><td>${r.elbows_90_lr}</td><td>${r.tees||0}</td><td>${r.flanges_wn}</td><td>${r.valves||'-'}</td><td>${r.weight_kg}</td></tr>`).join('')}</table>`;}
+ else if(btab=='Spec'){const b=D.bom||[];B.innerHTML=specHead()+`<table><tr><th>Line</th><th>NPS</th><th>Spec</th><th>OD</th><th>Wall</th><th>Route m</th><th>Cut m</th><th>Elbows</th><th>Tees</th><th>Flanges</th><th>Valves</th><th>kg</th></tr>${b.map(r=>`<tr class="click" onclick="pickById('${esc(r.line)}',true)"><td>${esc(r.line)}</td><td>${r.nps}</td><td>${esc(r.spec)}</td><td>${r.od_mm}</td><td>${r.wall_mm}</td><td>${r.route_length_m}</td><td>${r.pipe_cut_length_m}</td><td>${r.elbows_90_lr}</td><td>${r.tees||0}</td><td>${r.flanges_wn}</td><td>${r.valves||'-'}</td><td>${r.weight_kg}</td></tr>`).join('')}</table>`;}
  else{const f=BASE+'/file/';B.innerHTML='<div style="padding:10px;line-height:2"><a href="'+f+'plant.ifc">plant.ifc</a> · <a href="'+f+'plant.step">plant.step</a> · <a href="'+f+'plant.dxf">plant.dxf</a> · <a href="'+f+'isometrics.pdf">isometrics.pdf</a> · <a href="'+f+'bom.csv">bom.csv</a> · <a href="'+f+'qc_report.md">qc_report.md</a> · <a href="'+BASE+'/zip"><b>all (zip)</b></a><br><span class="mut">'+D.qc.standard+' profile · design rules '+(D.qc.standard_validated?'validated':'UNVALIDATED placeholders')+'</span></div>';}}
+function specHead(){
+ let h='';
+ if(SPECERR)h+=`<div style="padding:8px 10px;background:#b3261e18"><b class="e">${esc(SPECERR.message)}</b><table><tr><th>Sev</th><th>Table</th><th>Row</th><th>Problem</th></tr>${SPECERR.issues.map(i=>`<tr><td class="${i.severity=='error'?'e':'w'}">${i.severity}</td><td>${i.table}</td><td>${i.row??''}</td><td>${esc(i.message)}</td></tr>`).join('')}</table></div>`;
+ if(!SPEC||!SPEC.imported)return h+'<div style="padding:8px 10px" class="w">No piping spec imported – the built-in <b>generic</b> catalogue is used (not a piping class). Spec tab → <b>Import spec…</b> (.zip of CSVs, .xlsx or .json; <a href="/api/spec/template">template</a>).</div>';
+ const c=SPEC.classes,k=Object.keys(c);
+ h+=`<div style="padding:8px 10px"><b>Spec:</b> ${esc(SPEC.source.name||'')} <span class="mut">(${esc(SPEC.source.sha1||'')})</span>${SPEC.unknown_classes.length?` · <span class="e">classes used by lines but not in the spec: ${SPEC.unknown_classes.map(esc).join(', ')} – use “Map class codes…”</span>`:''}
+ <table><tr><th>Class</th><th>Rating</th><th>Material</th><th>Sizes (NPS)</th><th>Valves</th><th>Flanges</th><th>Branch rows</th><th>Lines using</th></tr>${k.map(n=>`<tr><td>${esc(n)}</td><td>${esc(c[n].rating)}</td><td>${esc(c[n].material)}</td><td>${c[n].sizes.join(', ')}</td><td>${c[n].valves}</td><td>${c[n].flanges}</td><td>${c[n].branches}</td><td>${SPEC.lines_per_class[n]||0}</td></tr>`).join('')}</table>`;
+ const w=SPEC.source.warnings||[];if(w.length)h+=`<details><summary class="w">${w.length} import warning(s)</summary>${w.map(i=>`<div class="mut">${esc(i.table)}: ${esc(i.message)}</div>`).join('')}</details>`;
+ return h+'</div>';}
 function setB(k){btab=k;if(D)bottom();}
 function gotoClash(c){if(c.x!=null){pin=[c.x,c.y,c.z];zoomPts([[c.x-1500,c.y-1500,c.z-1500],[c.x+1500,c.y+1500,c.z+1500]]);}const a=c.item_a;if(a)pickById(a,false);draw();}
 async function waive(i){const c=CLASH[i];if(c.status=='waived'){await post('/clashes/status',{key:c.key,status:'open'});toast('Re-opened');}
@@ -192,6 +223,7 @@ addEventListener('mouseup',e=>{if(drag&&!moved&&e.target===cv){const r=cv.getBou
 addEventListener('mousemove',e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.abs(dx)+Math.abs(dy)>2)moved=true;drag.x=e.clientX;drag.y=e.clientY;if(drag.s){pan[0]+=dx;pan[1]+=dy;}else{az+=dx*0.008;el=Math.max(-1.5,Math.min(1.5,el+dy*0.008));}draw();});
 cv.ondblclick=e=>{const r=cv.getBoundingClientRect(),h=pickAt(e.clientX-r.left,e.clientY-r.top);if(h)pickById(h.id,true);};
 cv.onwheel=e=>{e.preventDefault();zoom*=e.deltaY<0?1.1:0.9;draw();};addEventListener('resize',draw);
+$('specfile').onchange=e=>{const f=e.target.files[0];e.target.value='';if(f)uploadSpec(f);};
 /* ---------------- live updates (project mode) ---------------- */
 setInterval(async()=>{if(MODE!=='project'||!D)return;const r=await fetch(BASE+'/head');if(!r.ok)return;const j=await r.json();
  if(j.rev>REV){const b=$('banner');b.style.display='block';b.innerHTML=`Revision ${j.rev} is available (you have ${REV}). <button class="btn" onclick="$('banner').style.display='none';load(true)">Reload</button>`;}},5000);

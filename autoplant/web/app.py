@@ -6,6 +6,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from .. import editing
+from . import specapi
 from ..io_neutral import load_project
 from ..pipeline import run, ALL_OUTPUTS
 from ..standards import PROFILES
@@ -133,6 +134,31 @@ def undo_job(job: str):
 @app.get("/api/jobs/{job}/history")
 def job_history(job: str):
     return editing.history(str(_out(job)))
+
+
+@app.get("/api/spec/template")
+def spec_template():
+    return specapi.template_zip()
+
+
+@app.post("/api/jobs/{job}/spec")
+def job_spec_import(job: str, file: UploadFile = File(...)):
+    return specapi.import_spec(str(_out(job)), file.filename or "spec.zip", file.file.read(), author="")
+
+
+@app.post("/api/jobs/{job}/spec/clear")
+def job_spec_clear(job: str):
+    return specapi.import_spec(str(_out(job)), "", None, author="")
+
+
+@app.get("/api/jobs/{job}/spec")
+def job_spec(job: str):
+    return specapi.summary(str(_out(job)))
+
+
+@app.get("/api/jobs/{job}/spec/export")
+def job_spec_export(job: str):
+    return specapi.export(str(_out(job)))
 
 
 def main():

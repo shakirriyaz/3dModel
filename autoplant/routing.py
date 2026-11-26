@@ -4,7 +4,6 @@ from __future__ import annotations
 import math
 import numpy as np
 from .model import Project, Route, DIRS, split_ref
-from .catalog import od, elbow_takeoff, valve_ftf
 from .standards import Profile
 from . import rack as rackmod
 from ._astar import astar, DX, DY, DZ, OPP as OPPA
@@ -64,7 +63,8 @@ class Router:
     def _prep(self):
         p, s = self.g.p, self.std
         for ln in self.prj.lines:
-            r = od(ln.nps) / 2
+            dm = self.prj.dims(ln)
+            r = dm.r
             ends = []
             for ref in (ln.from_, ln.to):
                 if ref.startswith("@"):
@@ -75,7 +75,7 @@ class Router:
                 nz = next(n for n in e.nozzles if n.id == nid)
                 pos = e.nozzle_pos(nz)
                 d = DIRS[nz.direction]
-                need = max(elbow_takeoff(ln.nps) + s.weld_gap, r + s.equip_clearance + 2 * p)
+                need = max(dm.takeoff + s.weld_gap, r + s.equip_clearance + 2 * p)
                 if ln.is_stub:
                     need = max(need, self.STUB_LENGTH)      # reserve the whole boundary stub
                 stub_len = math.ceil(need / p) * p
@@ -90,7 +90,7 @@ class Router:
     def _blocked(self, ln, routed_pts, w0, w1, soft=False):
         """Blocked-cell array for the window [w0, w1) (cell indices, x/y windowed, full z)."""
         g, s = self.g, self.std
-        r = od(ln.nps) / 2
+        r = self.prj.dims(ln).r
         half = g.p * 0.5
         shape = (w1[0] - w0[0], w1[1] - w0[1], g.n[2])
         arr = np.zeros(shape, dtype=bool)
@@ -118,7 +118,7 @@ class Router:
         for other in self.prj.lines:
             if other.id == ln.id:
                 continue
-            ro = od(other.nps) / 2
+            ro = self.prj.dims(other).r
             infl = r + ro + s.pipe_gap + half
             pts = routed_pts.get(other.id)
             if pts is None:       # reserve nozzle stubs of lines not yet routed
@@ -186,7 +186,7 @@ class Router:
     def _params(self, ln):
         g, s = self.g, self.std
         (p0, s0, dn0, L0), (p1, s1, dn1, L1), r = self.stubs[ln.id]
-        min_leg = 2 * elbow_takeoff(ln.nps) + s.weld_gap
+        min_leg = 2 * self.prj.dims(ln).takeoff + s.weld_gap
         R = max(1, math.ceil(min_leg / g.p))
         return (p0, s0, dn0, L0), (p1, s1, dn1, L1), r, min_leg, R
 
@@ -281,9 +281,10 @@ class Router:
         """Tap points (position, outward direction) on the parent header, nearest the branch start first."""
         g, s = self.g, self.std
         par = next(l for l in self.prj.lines if l.id == ln.branch_of)
-        rp, rb = od(par.nps) / 2, od(ln.nps) / 2
+        dp, db = self.prj.dims(par), self.prj.dims(ln)
+        rp, rb = dp.r, db.r
         p = g.p
-        margin = max(elbow_takeoff(par.nps), elbow_takeoff(ln.nps)) + s.weld_gap + 300.0
+        margin = max(dp.takeoff, db.takeoff, dp.view.tee_half_length(par.nps, ln.nps)) + s.weld_gap + 300.0
         start = self.stubs[ln.id][0][1]
         out = []
         for a, b in zip(parent_pts, parent_pts[1:]):
@@ -432,13 +433,13 @@ class Router:
         """Routed lines whose clearance envelope the path `pts` runs through."""
         s = self.std
         by_id = {l.id: l for l in self.prj.lines}
-        r = od(ln.nps) / 2
+        r = self.prj.dims(ln).r
         out = []
         related = self._related(ln.id)
         for lid, other in routed_pts.items():
             if lid == ln.id or lid in related:
                 continue
-            infl = r + od(by_id[lid].nps) / 2 + s.pipe_gap
+            infl = r + self.prj.dims(by_id[lid]).r + s.pipe_gap
             hit = False
             for a, b in zip(pts, pts[1:]):
                 alo = [min(a[i], b[i]) - infl for i in range(3)]
@@ -461,7 +462,7 @@ class Router:
         `keep` = routes to retain unchanged (incremental re-route after an edit)."""
         by_id = {l.id: l for l in self.prj.lines}
         base = [l for l in self.prj.lines if not l.is_stub and not l.branch_of]
-        base.sort(key=lambda l: (-od(l.nps), l.id))
+        base.sort(key=lambda l: (-self.prj.dims(l).od, l.id))
         stubs = [l for l in self.prj.lines if l.is_stub]
         branches = [l for l in self.prj.lines if l.branch_of]
 
@@ -470,7 +471,7 @@ class Router:
             while l.branch_of and d < 20:
                 l, d = by_id[l.branch_of], d + 1
             return d
-        branches.sort(key=lambda l: (depth(l), -od(l.nps), l.id))
+        branches.sort(key=lambda l: (depth(l), -self.prj.dims(l).od, l.id))
         routes: dict[str, Route] = {}
         pts: dict[str, list] = {}
         for lid, rt in (keep or {}).items():
@@ -543,7 +544,8 @@ class Router:
             if rt.status != "routed" or not ln.valves:
                 continue
             n = len(ln.valves)
-            keep_off = valve_ftf(ln.nps) / 2 + 300.0
+            dm = self.prj.dims(ln)
+            keep_off = max((dm.ftf(v) for v in ln.valves), default=0.0) / 2 + 300.0
             legs = [(math.dist(a, b), a, b) for a, b in zip(rt.points, rt.points[1:])]
             legs.sort(key=lambda t: -t[0])
             chosen = None

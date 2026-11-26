@@ -2,7 +2,7 @@
 from __future__ import annotations
 import math
 from .model import Project, Nozzle, split_ref, DIRS
-from .catalog import EQUIP_TEMPLATES, od
+from .catalog import EQUIP_TEMPLATES
 from .standards import Profile
 from . import rack as rackmod
 
@@ -19,7 +19,7 @@ def _max_od(prj: Project) -> dict:
             if not ref.startswith("@"):
                 eid = split_ref(ref)[0]
                 if eid in m:
-                    m[eid] = max(m[eid], od(ln.nps))
+                    m[eid] = max(m[eid], prj.dims(ln).od)
     return m
 
 

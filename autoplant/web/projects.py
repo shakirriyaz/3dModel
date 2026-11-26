@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Resp
 from fastapi.responses import FileResponse, StreamingResponse, HTMLResponse, PlainTextResponse
 from pydantic import BaseModel
 from .. import editing, clash
+from . import specapi
 from ..db import Store
 from ..io_neutral import load_project
 from ..model import QCReport
@@ -230,6 +231,37 @@ def restore(pid: int, body: Restore, u: dict = Depends(user), st: Store = Depend
         rev = st.add_revision(pid, u["id"], "restore", f"restored revision {body.rev}", summary, os.path.join(out, "model.json"))
         st.audit(pid, u["id"], "restore", str(body.rev))
     return {"rev": rev, **summary}
+
+
+@router.post("/api/projects/{pid}/spec")
+def project_spec_import(pid: int, base_rev: int = Form(...), comment: str = Form(""), file: UploadFile | None = File(None),
+                        clear: bool = Form(False), u: dict = Depends(user), st: Store = Depends(store)):
+    need(st, pid, u, "editor")
+    if file is None and not clear:
+        raise HTTPException(400, "provide a spec file or clear=true")
+    with st.plock(pid):
+        cur = st.project(pid)["current_rev"]
+        if base_rev != cur:
+            raise HTTPException(409, {"message": "someone else changed this project - reload and retry", "current_rev": cur})
+        out = os.path.join(st.project_dir(pid), "out")
+        name = file.filename if file is not None else ""
+        result = specapi.import_spec(out, name or "spec", None if clear else file.file.read(), author=u["username"], outputs=DEFAULT_OUTPUTS)
+        rev = st.add_revision(pid, u["id"], "spec", comment or ("spec cleared" if clear else f"imported spec {name}"), result,
+                              os.path.join(out, "model.json"))
+        st.audit(pid, u["id"], "spec", name or "cleared")
+    return {"rev": rev, **result}
+
+
+@router.get("/api/projects/{pid}/spec")
+def project_spec(pid: int, u: dict = Depends(user), st: Store = Depends(store)):
+    need(st, pid, u, "viewer")
+    return specapi.summary(os.path.join(st.project_dir(pid), "out"))
+
+
+@router.get("/api/projects/{pid}/spec/export")
+def project_spec_export(pid: int, u: dict = Depends(user), st: Store = Depends(store)):
+    need(st, pid, u, "viewer")
+    return specapi.export(os.path.join(st.project_dir(pid), "out"))
 
 
 def _file(st, pid, u, path):

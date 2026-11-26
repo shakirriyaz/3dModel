@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import Literal, Optional
 from pydantic import BaseModel, Field, ConfigDict
+from .spec import PipeSpec, SpecView, Dims
 
 Vec = tuple[float, float, float]
 DIRS = {"+x": (1, 0, 0), "-x": (-1, 0, 0), "+y": (0, 1, 0), "-y": (0, -1, 0),
@@ -80,8 +81,18 @@ class Project(BaseModel):
     margin: float = 6000.0
     rack: RackSpec = RackSpec()
     notes: list[str] = []
+    specs: dict[str, PipeSpec] = {}          # imported piping classes; empty -> built-in generic catalogue
+    spec_source: dict = {}                   # {name, sha1, imported_at, warnings: [...]}
     equipment: list[Equipment]
     lines: list[Line]
+
+    def spec_view(self, code: str) -> SpecView:
+        """Dimension source for a class code. With imported specs an unknown code falls back to the
+        built-in values so the pipeline keeps running - QC then reports it as an error."""
+        return SpecView(self.specs.get(code)) if self.specs else SpecView(None)
+
+    def dims(self, ln: "Line") -> Dims:
+        return Dims(self.spec_view(ln.spec), ln.nps)
 
     def eq(self, eid: str) -> Equipment:
         for e in self.equipment:

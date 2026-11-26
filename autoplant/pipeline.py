@@ -71,6 +71,8 @@ def run(prj: Project, outdir: str, outputs=None, standard: str | None = None, ke
     if "bom_csv" in outputs:
         with open(out("bom.csv"), "w") as f:
             f.write(bom.bom_csv(rows))
+        with open(out("mto.csv"), "w") as f:
+            f.write(bom.mto_csv(bom.build_mto(prj, routes)))
     if "qc_report" in outputs:
         with open(out("qc_report.json"), "w") as f:
             f.write(report.model_dump_json(indent=1))

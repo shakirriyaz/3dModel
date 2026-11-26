@@ -3,7 +3,6 @@ fitting symbols, line data block and per-line material list. Drawn from the rout
 from __future__ import annotations
 import math, os
 from ..model import Project, Route
-from ..catalog import od, wall, elbow_takeoff
 
 C30, S30 = math.cos(math.radians(30)), math.sin(math.radians(30))
 
@@ -33,7 +32,7 @@ def _svg(prj, ln, rt, stamp, W=1100, H=800):
          f'<rect width="{W}" height="{H}" fill="white" stroke="black"/>',
          f'<text x="20" y="32" font-size="20" font-weight="bold">ISOMETRIC {ln.id}</text>',
          f'<text x="20" y="56" font-size="13">{prj.name} | NPS {ln.nps} | Spec {ln.spec} | {ln.service} | '
-         f'OD {od(ln.nps)} x {wall(ln.nps)} mm</text>',
+         f'OD {prj.dims(ln).od} x {prj.dims(ln).wall} mm</text>',
          f'<text x="20" y="78" font-size="13" fill="{"#060" if "PASSED" in stamp else "#b00"}">{stamp}</text>',
          f'<text x="{W - 130}" y="40" font-size="12">N ↗ (+Y)  ISO view</text>']
     pl = " ".join(f"{x:.1f},{y:.1f}" for x, y in sp)
@@ -82,7 +81,7 @@ def write_pdf(prj: Project, routes: dict[str, Route], bom_rows: list[dict], path
         c.setFont("Helvetica-Bold", 18)
         c.drawString(40, H - 55, f"ISOMETRIC {ln.id}")
         c.setFont("Helvetica", 11)
-        c.drawString(40, H - 75, f"{prj.name} | NPS {ln.nps} | Spec {ln.spec} | {ln.service} | OD {od(ln.nps)} x {wall(ln.nps)} mm")
+        c.drawString(40, H - 75, f"{prj.name} | NPS {ln.nps} | Spec {ln.spec} | {ln.service} | OD {prj.dims(ln).od} x {prj.dims(ln).wall} mm")
         c.setFillColorRGB(0, 0.4, 0) if "PASSED" in stamp else c.setFillColorRGB(0.7, 0, 0)
         c.drawString(40, H - 92, stamp)
         c.setFillColorRGB(0, 0, 0)

@@ -4,7 +4,6 @@ import math
 import ezdxf
 from ..model import Project, Route
 from .. import rack as rackmod
-from ..catalog import od
 
 
 def write_dxf(prj: Project, routes: dict[str, Route], path: str, stamp: str):
@@ -45,7 +44,6 @@ def write_dxf(prj: Project, routes: dict[str, Route], path: str, stamp: str):
             continue
         layer = "LINE-" + ln.id
         doc.layers.add(layer, color=3 + (hash(ln.id) % 5))
-        w = max(1, int(od(ln.nps)))  # lineweight hint (1/100 mm), capped by DXF set
         for a, b in zip(rt.points, rt.points[1:]):
             msp.add_line((a[0], a[1]), (b[0], b[1]), dxfattribs={"layer": layer})
             msp.add_line((a[0], a[2] + off), (b[0], b[2] + off), dxfattribs={"layer": layer})

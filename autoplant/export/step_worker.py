@@ -48,7 +48,7 @@ def main():
         parts.append((s["id"], box(s["lo"], s["hi"])))
     for ln in scene["lines"]:
         pts, r = ln["points"], ln["r"]
-        tk = 1.5 * ln["nps"] * 25.4
+        tk = ln.get("takeoff") or 1.5 * ln["nps"] * 25.4
         n = len(pts) - 1
         for i in range(n):
             a, b = pts[i], pts[i + 1]

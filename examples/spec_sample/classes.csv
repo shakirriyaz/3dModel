@@ -1,0 +1,5 @@
+# SAMPLE DATA - NOT A REAL PIPING CLASS. Replace with your company piping class before any real use.
+class,description,rating,material,corrosion_allowance_mm,elbow_type,min_nps,max_nps
+A1,Carbon steel 150# (SAMPLE),150#,ASTM A106 Gr.B,1.5,LR,0.5,12
+B2,Carbon steel 300# heavy wall (SAMPLE),300#,ASTM A106 Gr.B,3.0,LR,0.5,12
+S1,Stainless 316L 150# (SAMPLE),150#,ASTM A312 TP316L,0.0,SR,0.5,10

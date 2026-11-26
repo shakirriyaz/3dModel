@@ -7,7 +7,6 @@ import ifcopenshell.util.shape_builder
 Vector = tuple
 from ..model import Project, Route
 from .. import rack as rackmod
-from ..catalog import od, elbow_takeoff, valve_ftf, wall
 
 EQ_CLASS = {"vessel_vertical": "IfcTank", "vessel_horizontal": "IfcTank", "tank": "IfcTank",
             "column": "IfcTank", "pump": "IfcPump", "exchanger": "IfcHeatExchanger"}
@@ -82,12 +81,13 @@ def write_ifc(prj: Project, routes: dict[str, Route], path: str):
         if rt.status != "routed":
             continue
         ln = by_id[lid]
-        r = od(ln.nps) / 2
+        dm = prj.dims(ln)
+        r = dm.r
         props = {"LineNumber": ln.id, "NPS": ln.nps, "Spec": ln.spec, "Service": ln.service,
-                 "OD_mm": od(ln.nps), "Wall_mm": wall(ln.nps)}
+                 "OD_mm": dm.od, "Wall_mm": dm.wall}
         pts = rt.points
         n = len(pts) - 1
-        tk = elbow_takeoff(ln.nps)
+        tk = dm.takeoff
         for i, (a, b) in enumerate(zip(pts, pts[1:])):
             L = math.dist(a, b)
             u = _unit(tuple(b[k] - a[k] for k in range(3)))
@@ -109,7 +109,7 @@ def write_ifc(prj: Project, routes: dict[str, Route], path: str):
             item = sb.extrude(prof, magnitude=r * 2.4, position=Vector((c[0], c[1], c[2] - r * 1.2)))
             make("IfcPipeFitting", f"{lid}-TEE", [item], predefined="JUNCTION", props=props)
         for vt, p in rt.valve_positions:
-            L = valve_ftf(ln.nps)
+            L = dm.ftf(vt)
             prof = sb.rectangle(size=(r * 3, r * 3))
             item = sb.extrude(prof, magnitude=L, position=Vector((p[0] - r * 1.5, p[1] - r * 1.5, p[2] - r * 1.5)))
             el = make("IfcValve", f"{lid}-{vt.upper()}", [item], props={**props, "ValveType": vt})

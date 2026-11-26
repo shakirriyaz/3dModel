@@ -6,7 +6,6 @@ change can never bypass the checks. Each edit snapshots the previous model for u
 from __future__ import annotations
 import json, os, shutil, time
 from .model import Project, Route, Equipment, Line, Nozzle, split_ref
-from .catalog import od
 from . import pipeline, rack as rackmod
 from .standards import get_profile
 
@@ -23,6 +22,12 @@ def load_state(out_dir: str) -> tuple[Project, dict[str, Route]]:
     prj = Project(**m["project"])
     routes = {k: Route(**v) for k, v in m["routes"].items()}
     return prj, routes
+
+
+def _sig(prj, ln):
+    """Geometry-relevant dimensions of a line (what a spec change can alter)."""
+    dm = prj.dims(ln)
+    return (round(dm.od, 2), round(dm.takeoff, 2), tuple(round(dm.ftf(v), 1) for v in ln.valves))
 
 
 def _lines_of(prj, eid):
@@ -63,12 +68,28 @@ def apply_ops(prj: Project, ops: list[dict]) -> set[str]:
             if "nps" in op and float(op["nps"]) != ln.nps:
                 ln.nps = float(op["nps"])
                 dirty.add(ln.id)
-            for k in ("spec", "service"):
-                if k in op:
-                    setattr(ln, k, str(op[k]))
+            if "spec" in op and str(op["spec"]) != ln.spec:
+                before = _sig(prj, ln)
+                ln.spec = str(op["spec"])
+                if _sig(prj, ln) != before:
+                    dirty.add(ln.id)
+            if "service" in op:
+                ln.service = str(op["service"])
             if "valves" in op:
                 ln.valves = [str(v) for v in op["valves"]]
                 dirty.add(ln.id)          # valve positions depend on the route
+        elif kind == "remap_spec":
+            to = str(op["to"])
+            if prj.specs and to not in prj.specs:
+                raise EditError(f"class {to!r} is not in the imported spec (available: {', '.join(sorted(prj.specs))})")
+            hit = [l for l in prj.lines if l.spec == op["from"]]
+            if not hit:
+                raise EditError(f"no line uses class {op['from']!r}")
+            for l in hit:
+                before = _sig(prj, l)
+                l.spec = to
+                if _sig(prj, l) != before:
+                    dirty.add(l.id)
         elif kind == "reroute":
             dirty.add(op["id"])
         elif kind == "set_nozzle":
@@ -118,7 +139,7 @@ def _invalid_by_geometry(prj, routes, std, skip: set[str]) -> set[str]:
     for lid, rt in routes.items():
         if lid in skip or rt.status != "routed":
             continue
-        r = next((od(l.nps) / 2 for l in prj.lines if l.id == lid), 0.0)
+        r = next((prj.dims(l).r for l in prj.lines if l.id == lid), 0.0)
         for a, b in zip(rt.points, rt.points[1:]):
             ax = [i for i in range(3) if abs(b[i] - a[i]) > 1.0]
             k = [0.0 if (len(ax) == 1 and i == ax[0]) else r for i in range(3)]
@@ -130,20 +151,21 @@ def _invalid_by_geometry(prj, routes, std, skip: set[str]) -> set[str]:
     return bad
 
 
-def edit_dir(out_dir: str, ops: list[dict], outputs=None, author: str = "") -> dict:
-    """Apply `ops` to the model saved in out_dir, re-route what changed, re-run QC and rewrite outputs."""
+def _run_edit(out_dir: str, mutate, record: dict, outputs=None, author: str = "") -> dict:
+    """Snapshot -> mutate(prj) -> set of dirty line ids -> re-route only those -> QC -> outputs."""
     t0 = time.time()
     prj, routes = load_state(out_dir)
-    before = json.load(open(os.path.join(out_dir, "qc_report.json"))) if os.path.exists(os.path.join(out_dir, "qc_report.json")) else None
+    qcp = os.path.join(out_dir, "qc_report.json")
+    before = json.load(open(qcp)) if os.path.exists(qcp) else None
     hist = os.path.join(out_dir, "..", "history")
     os.makedirs(hist, exist_ok=True)
     n = len(os.listdir(hist)) + 1
     snap = os.path.join(hist, f"{n:04d}")
     os.makedirs(snap)
     shutil.copy(os.path.join(out_dir, "model.json"), snap)
-    json.dump({"ops": ops, "author": author, "time": time.time()}, open(os.path.join(snap, "edit.json"), "w"))
+    json.dump({**record, "author": author, "time": time.time()}, open(os.path.join(snap, "edit.json"), "w"))
     try:
-        dirty = apply_ops(prj, ops)
+        dirty = mutate(prj)
     except Exception:
         shutil.rmtree(snap)
         raise
@@ -151,12 +173,11 @@ def edit_dir(out_dir: str, ops: list[dict], outputs=None, author: str = "") -> d
     std = get_profile(prj.standard)
     was_rack = prj.rack.active
     rackmod.finalize(prj, std.equip_clearance)
-    # nozzles that lost their offset (face change) or new lines need layout completion
     from . import layout
     layout.apply_templates(prj)
     layout.auto_nozzles(prj)
     keep = {k: v for k, v in routes.items() if k not in dirty and any(l.id == k for l in prj.lines)}
-    if prj.rack.active != was_rack or (prj.rack.active and (prj.rack.x0, prj.rack.x1) != (prj.rack.x0, prj.rack.x1)):
+    if prj.rack.active != was_rack:
         keep = {}
     keep = {k: v for k, v in keep.items() if k not in _invalid_by_geometry(prj, keep, std, set())}
     res = pipeline.run(prj, out_dir, outputs or OUTPUTS_DEFAULT, prj.standard, keep=keep)
@@ -164,6 +185,43 @@ def edit_dir(out_dir: str, ops: list[dict], outputs=None, author: str = "") -> d
     return {"version": n, "rerouted": sorted(rerouted), "kept": len(keep), "seconds": round(time.time() - t0, 2),
             "status": res.status, "errors": res.qc.errors, "warnings": res.qc.warnings,
             "errors_before": None if before is None else before["errors"]}
+
+
+def edit_dir(out_dir: str, ops: list[dict], outputs=None, author: str = "") -> dict:
+    """Apply `ops` to the model saved in out_dir, re-route what changed, re-run QC and rewrite outputs."""
+    return _run_edit(out_dir, lambda prj: apply_ops(prj, ops), {"ops": ops}, outputs, author)
+
+
+class SpecImportError(ValueError):
+    def __init__(self, report):
+        super().__init__("; ".join(f"{i.table}{'' if i.row is None else ' row ' + str(i.row)}: {i.message}" for i in report.errors[:5]))
+        self.report = report
+
+
+def import_spec_dir(out_dir: str, name: str, data: bytes | None, outputs=None, author: str = "") -> dict:
+    """Replace the project's piping spec (data=None -> back to the built-in generic catalogue).
+    Only lines whose pipe size / elbow / valve dimensions change are re-routed; QC re-runs on everything."""
+    import hashlib
+    from . import spec as specmod
+    report = None
+    if data is not None:
+        new_specs, report = specmod.load_spec(name, data)
+        if not report.ok:
+            raise SpecImportError(report)
+    else:
+        new_specs = {}
+
+    def mutate(prj):
+        old = {l.id: _sig(prj, l) for l in prj.lines}
+        prj.specs = new_specs
+        prj.spec_source = ({"name": name, "sha1": hashlib.sha1(data).hexdigest()[:12], "imported_at": time.time(),
+                            "classes": report.classes, "warnings": [i.model_dump() for i in report.warnings]}
+                           if data is not None else {})
+        return _descendants(prj, {l.id for l in prj.lines if _sig(prj, l) != old[l.id]})
+
+    out = _run_edit(out_dir, mutate, {"ops": [{"op": "import_spec", "file": name if data is not None else None}]}, outputs, author)
+    out["spec_warnings"] = 0 if report is None else len(report.warnings)
+    return out
 
 
 def history(out_dir: str) -> list[dict]:

@@ -10,6 +10,7 @@ def main(argv=None):
     ap.add_argument("input", help="project .json (neutral) or DEXPI Proteus .xml")
     ap.add_argument("-o", "--out", default="out", help="output directory")
     ap.add_argument("--standard", default=None, help=f"profile name {sorted(PROFILES)} or JSON path")
+    ap.add_argument("--spec", default=None, help="piping spec: folder/.zip of CSVs, .xlsx or .json (see examples/spec_sample)")
     ap.add_argument("--outputs", default=",".join(ALL_OUTPUTS), help="comma list: " + ",".join(ALL_OUTPUTS))
     a = ap.parse_args(argv)
     if a.input.lower().endswith(".xml"):
@@ -17,6 +18,16 @@ def main(argv=None):
         prj = load_dexpi(a.input)
     else:
         prj = load_project(a.input)
+    if a.spec:
+        from . import spec as specmod
+        specs, rep = specmod.load_spec_path(a.spec)
+        for i in rep.issues:
+            print(f"  spec {i.severity}: {i.table}{'' if i.row is None else ' row ' + str(i.row)}: {i.message}")
+        if not rep.ok:
+            print("spec import failed - nothing run")
+            return 2
+        prj.specs = specs
+        prj.spec_source = {"name": a.spec, "classes": rep.classes}
     res = run(prj, a.out, a.outputs.split(","), a.standard)
     print(f"QC {res.status}: {res.qc.errors} errors, {res.qc.warnings} warnings  ({res.seconds:.1f}s)")
     nr = sum(1 for r in res.routes.values() if r.note == "rack")

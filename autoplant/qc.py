@@ -2,9 +2,8 @@
 from __future__ import annotations
 import math
 from .model import Project, Route, QCItem, QCReport, split_ref
-from .catalog import od, elbow_takeoff, valve_ftf, PIPE_OD
 from .standards import Profile
-from . import rack as rackmod
+from . import rack as rackmod, catalog
 
 TOL = 1.0
 
@@ -42,7 +41,8 @@ def run_qc(prj: Project, routes: dict[str, Route], std: Profile) -> QCReport:
     items: list[QCItem] = []
     checks = ["completeness", "nozzle_connectivity", "orthogonality", "pipe_size_known", "min_leg",
               "bend_count", "equipment_clash", "pipe_clash", "equipment_overlap", "headroom",
-              "valve_fit", "duplicate_nozzle_use", "rack_clash", "self_clash", "tee_geometry", "input_note"]
+              "valve_fit", "duplicate_nozzle_use", "rack_clash", "self_clash", "tee_geometry", "input_note", "spec_unknown", "size_not_in_spec",
+              "valve_not_in_spec", "branch_not_in_spec", "builtin_catalogue"]
 
     def add(check, sev, subj, msg, at=None):
         items.append(QCItem(check=check, severity=sev, subject=subj, message=msg,
@@ -51,6 +51,11 @@ def run_qc(prj: Project, routes: dict[str, Route], std: Profile) -> QCReport:
 
     for note in prj.notes:
         add("input_note", "warning", "input", note)
+
+    if not prj.specs and prj.lines:
+        add("builtin_catalogue", "warning", "specs",
+            f"no piping spec imported - the built-in generic catalogue is assumed for {len(prj.lines)} line(s) "
+            "(generic pipe/fitting/valve dimensions, not a piping class)")
 
     # equipment overlap (layout)
     boxes = {e.id: e.box() for e in prj.equipment}
@@ -80,9 +85,29 @@ def run_qc(prj: Project, routes: dict[str, Route], std: Profile) -> QCReport:
     seg_index = []   # (line_id, idx, a, b, r)
     for ln in prj.lines:
         rt = routes.get(ln.id)
-        r = od(ln.nps) / 2
-        if ln.nps not in PIPE_OD:
-            add("pipe_size_known", "warning", ln.id, f"NPS {ln.nps} not in catalog; nearest size used")
+        dm = prj.dims(ln)
+        r = dm.r
+        if prj.specs:
+            view = prj.spec_view(ln.spec)
+            if ln.spec not in prj.specs:
+                add("spec_unknown", "error", ln.id, f"piping class {ln.spec!r} is not defined in the imported spec")
+            else:
+                if not view.has_size(ln.nps):
+                    add("size_not_in_spec", "error", ln.id, f"NPS {ln.nps:g} is not available in class {ln.spec}")
+                for vt in sorted(set(ln.valves)):
+                    if not view.valve_allowed(vt, ln.nps):
+                        add("valve_not_in_spec", "error", ln.id, f"class {ln.spec} has no {vt} valve in NPS {ln.nps:g}")
+                if ln.branch_of:
+                    hdr = next((l for l in prj.lines if l.id == ln.branch_of), None)
+                    hv = prj.spec_view(hdr.spec) if hdr else None
+                    if hv is not None and hv.spec is not None and hv.spec.branches:
+                        br = hv.branch_row(hdr.nps, ln.nps)
+                        if br is None:
+                            add("branch_not_in_spec", "error", ln.id, f"branch table of class {hdr.spec} has no {hdr.nps:g}x{ln.nps:g} entry")
+                        elif br.type == "none":
+                            add("branch_not_in_spec", "error", ln.id, f"class {hdr.spec} does not allow a {hdr.nps:g}x{ln.nps:g} branch")
+        if not prj.specs and ln.nps not in catalog.PIPE_OD:
+            add("pipe_size_known", "warning", ln.id, f"NPS {ln.nps} not in the built-in catalogue; nearest size used")
         if rt is None or rt.status != "routed":
             add("completeness", "error", ln.id, f"line not routed ({rt.note if rt else 'no route'})")
             continue
@@ -127,7 +152,7 @@ def run_qc(prj: Project, routes: dict[str, Route], std: Profile) -> QCReport:
         if bends > std.max_bends_per_line:
             add("bend_count", "warning", ln.id, f"{bends} bends (limit {std.max_bends_per_line})")
         # min leg between fittings
-        tk = elbow_takeoff(ln.nps)
+        tk = dm.takeoff
         legs = [math.dist(a, b) for a, b in zip(pts, pts[1:])]
         for i, L in enumerate(legs):
             ends_bends = (1 if i > 0 else 0) + (1 if i < len(legs) - 1 else 0)
@@ -139,7 +164,7 @@ def run_qc(prj: Project, routes: dict[str, Route], std: Profile) -> QCReport:
         # valve fit
         if rt.valve_positions:
             longest = max(legs)
-            need = valve_ftf(ln.nps) * len(rt.valve_positions) + 2 * std.weld_gap
+            need = sum(dm.ftf(v) for v, _ in rt.valve_positions) + 2 * std.weld_gap
             if longest < need:
                 add("valve_fit", "error", ln.id, f"longest leg {longest:.0f} mm too short for {len(rt.valve_positions)} valve(s)")
         # headroom (warning): horizontal legs in the walking band
