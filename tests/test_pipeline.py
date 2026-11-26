@@ -132,3 +132,21 @@ def test_edit_api(tmp_path):
     assert c.post(f"/api/jobs/{job}/edit", json={"ops": [{"op": "bogus"}]}).status_code == 422
     assert c.post(f"/api/jobs/{job}/undo").status_code == 200
     assert c.post(f"/api/jobs/{job}/undo").status_code == 409
+
+
+def test_step_export_graceful_skip_and_real_output(tmp_path, monkeypatch):
+    import os, subprocess, pytest
+    from autoplant.export import step as x_step
+    prj = load_project(f"{EX}/separator_skid.json")
+    # 1) with no OpenCASCADE available the run still succeeds and says why STEP was skipped
+    monkeypatch.setenv("AUTOPLANT_STEP_PYTHON", "/nonexistent/python")
+    res = run(prj, str(tmp_path / "a"), ["step", "qc_report"])
+    assert "step" in res.skipped and "plant.step" not in res.files and res.qc.passed
+    # 2) where an OCP-enabled python is configured the STEP file is real
+    py = os.environ.get("AUTOPLANT_TEST_STEP_PYTHON")
+    if not py:
+        pytest.skip("set AUTOPLANT_TEST_STEP_PYTHON to a python with cadquery-ocp to test real STEP output")
+    monkeypatch.setenv("AUTOPLANT_STEP_PYTHON", py)
+    res = run(load_project(f"{EX}/separator_skid.json"), str(tmp_path / "b"), ["step", "qc_report"])
+    txt = (tmp_path / "b" / "plant.step").read_text(errors="ignore")
+    assert "plant.step" in res.files and "L-1001-S1" in txt and "V-100" in txt and txt.count("MANIFOLD_SOLID_BREP") >= 20

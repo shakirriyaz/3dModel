@@ -25,6 +25,8 @@ def main(argv=None):
         print("  note:", n)
     for i in res.qc.items[:30]:
         print(f"  [{i.severity}] {i.check} {i.subject}: {i.message}")
+    for k, why in res.skipped.items():
+        print(f"  skipped {k}: {why}")
     print("files:", ", ".join(res.files))
     return 0 if res.qc.passed else 2
 

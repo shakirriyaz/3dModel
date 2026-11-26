@@ -15,6 +15,7 @@ class RunResult:
     routes: dict
     qc: QCReport
     files: list = field(default_factory=list)
+    skipped: dict = field(default_factory=dict)   # output -> reason it was not produced
     seconds: float = 0.0
 
     @property
@@ -81,6 +82,13 @@ def run(prj: Project, outdir: str, outputs=None, standard: str | None = None, ke
             f.write(clash.to_csv(rs))
         with open(out("clash_report.html"), "w") as f:
             f.write(clash.to_html(rs, prj.name, stamp))
+    if "step" in outputs:
+        from .export import step as x_step
+        try:
+            x_step.write_step(os.path.join(outdir, "scene.json"), out("plant.step"))
+        except x_step.StepUnavailable as e:
+            res.files.remove("plant.step")
+            res.skipped["step"] = str(e)
     if "viewer" in outputs:
         x_scene.write_viewer(prj, routes, out("viewer.html"), stamp)
     res.seconds = time.time() - t0
