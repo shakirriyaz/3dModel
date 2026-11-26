@@ -4,9 +4,9 @@ import json, os, time
 from dataclasses import dataclass, field
 from .model import Project, Route, QCReport
 from .standards import get_profile
-from . import layout, routing, qc, bom, rack
+from . import layout, routing, qc, bom, rack, clash
 
-ALL_OUTPUTS = ["ifc", "dxf", "iso_pdf", "iso_svg", "bom_csv", "qc_report", "viewer"]
+ALL_OUTPUTS = ["ifc", "dxf", "iso_pdf", "iso_svg", "bom_csv", "qc_report", "clash_report", "viewer", "step"]
 
 
 @dataclass
@@ -22,24 +22,26 @@ class RunResult:
         return "PASSED" if self.qc.passed else "FAILED"
 
 
-def build_model(prj: Project, standard: str | None = None):
-    std = get_profile(standard or prj.standard)
+def build_model(prj: Project, standard: str | None = None, keep: dict | None = None):
+    """keep = previously computed routes to retain (incremental re-route after an edit)."""
+    prj.standard = standard or prj.standard
+    std = get_profile(prj.standard)
     layout.apply_templates(prj)
     layout.place_equipment(prj, std)
     layout.auto_nozzles(prj)
     rack.finalize(prj, std.equip_clearance)
     router = routing.Router(prj, std)
-    routes = router.route_all()
+    routes = router.route_all(keep=keep)
     report = qc.run_qc(prj, routes, std)
     return std, routes, report
 
 
-def run(prj: Project, outdir: str, outputs=None, standard: str | None = None) -> RunResult:
+def run(prj: Project, outdir: str, outputs=None, standard: str | None = None, keep: dict | None = None) -> RunResult:
     from .export import ifc as x_ifc, dxf as x_dxf, iso as x_iso, scene as x_scene
     t0 = time.time()
     outputs = list(outputs or ALL_OUTPUTS)
     os.makedirs(outdir, exist_ok=True)
-    std, routes, report = build_model(prj, standard)
+    std, routes, report = build_model(prj, standard, keep)
     rows = bom.build_bom(prj, routes)
     stamp = "QC PASSED" if report.passed else "DRAFT - QC FAILED"
     if not std.validated:
@@ -73,6 +75,12 @@ def run(prj: Project, outdir: str, outputs=None, standard: str | None = None) ->
             f.write(report.model_dump_json(indent=1))
         with open(out("qc_report.md"), "w") as f:
             f.write(_qc_md(prj, report, stamp))
+    if "clash_report" in outputs:
+        rs = clash.rows(report)
+        with open(out("clash_report.csv"), "w") as f:
+            f.write(clash.to_csv(rs))
+        with open(out("clash_report.html"), "w") as f:
+            f.write(clash.to_html(rs, prj.name, stamp))
     if "viewer" in outputs:
         x_scene.write_viewer(prj, routes, out("viewer.html"), stamp)
     res.seconds = time.time() - t0

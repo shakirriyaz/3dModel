@@ -67,12 +67,17 @@ class Router:
             r = od(ln.nps) / 2
             ends = []
             for ref in (ln.from_, ln.to):
+                if ref.startswith("@"):
+                    ends.append(None)       # stub end / branch tap: decided during routing
+                    continue
                 eid, nid = split_ref(ref)
                 e = self.prj.eq(eid)
                 nz = next(n for n in e.nozzles if n.id == nid)
                 pos = e.nozzle_pos(nz)
                 d = DIRS[nz.direction]
                 need = max(elbow_takeoff(ln.nps) + s.weld_gap, r + s.equip_clearance + 2 * p)
+                if ln.is_stub:
+                    need = max(need, self.STUB_LENGTH)      # reserve the whole boundary stub
                 stub_len = math.ceil(need / p) * p
                 ends.append((pos, _add(pos, d, stub_len), nz.direction, stub_len))
             self.stubs[ln.id] = (ends[0], ends[1], r)
@@ -117,8 +122,8 @@ class Router:
             infl = r + ro + s.pipe_gap + half
             pts = routed_pts.get(other.id)
             if pts is None:       # reserve nozzle stubs of lines not yet routed
-                (p0, p1, _, _), (q0, q1, _, _), _ = self.stubs[other.id]
-                segs = [(p0, p1), (q0, q1)]
+                a_end, b_end, _ = self.stubs[other.id]
+                segs = [(e[0], e[1]) for e in (a_end, b_end) if e is not None]
             else:
                 segs = list(zip(pts, pts[1:]))
             for a, b in segs:
@@ -261,6 +266,84 @@ class Router:
 
     RACK_TRIES = 6
 
+    STUB_LENGTH = 3000.0     # free-end stub to the plant boundary
+
+    def route_stub(self, ln) -> Route:
+        """Single-nozzle line leaving the unit (off-page connector / battery limit): straight out."""
+        (p0, s0, dn0, L0), _, r = self.stubs[ln.id]
+        d = DIRS[dn0]
+        end = _add(p0, d, max(self.STUB_LENGTH, L0))
+        return Route(line_id=ln.id, status="routed", points=[tuple(p0), tuple(end)], note="battery-limit stub")
+
+    TAP_TRIES = 6
+
+    def _tap_candidates(self, ln, parent_pts):
+        """Tap points (position, outward direction) on the parent header, nearest the branch start first."""
+        g, s = self.g, self.std
+        par = next(l for l in self.prj.lines if l.id == ln.branch_of)
+        rp, rb = od(par.nps) / 2, od(ln.nps) / 2
+        p = g.p
+        margin = max(elbow_takeoff(par.nps), elbow_takeoff(ln.nps)) + s.weld_gap + 300.0
+        start = self.stubs[ln.id][0][1]
+        out = []
+        for a, b in zip(parent_pts, parent_pts[1:]):
+            ax = [i for i in range(3) if abs(b[i] - a[i]) > 1e-6]
+            if len(ax) != 1:
+                continue
+            ax = ax[0]
+            L = abs(b[ax] - a[ax])
+            sgn = 1 if b[ax] > a[ax] else -1
+            k = math.ceil(margin / p)
+            while k * p <= L - margin:
+                pos = list(a)
+                pos[ax] = a[ax] + sgn * k * p
+                for dn, dv in DIRS.items():
+                    if dv[ax] != 0:
+                        continue
+                    out.append((sum(abs(pos[i] - start[i]) for i in range(3)) + (0 if dv[2] == 0 else 400), tuple(pos), dn, dv))
+                k += 2
+        out.sort(key=lambda t: t[0])
+        res, seen = [], set()
+        for _, pos, dn, dv in out:
+            key = (round(pos[0] / 500), round(pos[1] / 500), round(pos[2] / 500), dn)
+            if key in seen:
+                continue
+            seen.add(key)
+            res.append((pos, dn, dv))
+        return res, rp, rb
+
+    def route_branch(self, ln, pts, soft=False) -> Route:
+        parent = pts.get(ln.branch_of)
+        if parent is None:
+            return Route(line_id=ln.id, status="failed", note="header not routed yet")
+        g, s = self.g, self.std
+        cands, rp, rb = self._tap_candidates(ln, parent)
+        p = g.p
+        infl = rb + rp + s.pipe_gap + p * 0.5
+        L1 = math.ceil((infl + p) / p) * p
+        start_end = self.stubs[ln.id][0]
+        tries = 0
+        for pos, dn, dv in cands:
+            if tries >= (1 if soft else self.TAP_TRIES):
+                break
+            tries += 1
+            s1 = _add(pos, dv, L1)
+            self.stubs[ln.id] = (start_end, (pos, s1, dn, L1), rb)
+            rt = self.route_line(ln, pts, soft)
+            if rt.status == "routed":
+                rt.note = "branch"
+                return rt
+        return Route(line_id=ln.id, status="failed", note="no feasible branch route")
+
+    def route_one(self, ln, pts, soft=False) -> Route:
+        if ln.is_stub:
+            return self.route_stub(ln)
+        if ln.branch_of:
+            return self.route_branch(ln, pts, soft)
+        if soft:
+            return self.route_line(ln, pts, soft=True)
+        return self.route_line_auto(ln, pts)
+
     def route_line_auto(self, ln, pts) -> Route:
         rt = self.route_via_rack(ln, pts)
         return rt if rt is not None else self.route_line(ln, pts)
@@ -325,14 +408,35 @@ class Router:
         return res
 
     # ------------------------------------------------------------------
+    def _related(self, lid) -> set:
+        """Lines in the same tee network (ancestors + descendants): they legitimately touch at the tee."""
+        by_id = {l.id: l for l in self.prj.lines}
+        out, cur = set(), lid
+        while by_id[cur].branch_of:
+            cur = by_id[cur].branch_of
+            out.add(cur)
+        out |= self._descendants(lid)
+        return out
+
+    def _descendants(self, lid) -> set:
+        out, todo = set(), [lid]
+        while todo:
+            x = todo.pop()
+            for l in self.prj.lines:
+                if l.branch_of == x and l.id not in out:
+                    out.add(l.id)
+                    todo.append(l.id)
+        return out
+
     def _conflicts(self, ln, pts, routed_pts) -> list[str]:
         """Routed lines whose clearance envelope the path `pts` runs through."""
         s = self.std
         by_id = {l.id: l for l in self.prj.lines}
         r = od(ln.nps) / 2
         out = []
+        related = self._related(ln.id)
         for lid, other in routed_pts.items():
-            if lid == ln.id:
+            if lid == ln.id or lid in related:
                 continue
             infl = r + od(by_id[lid].nps) / 2 + s.pipe_gap
             hit = False
@@ -349,46 +453,75 @@ class Router:
                 out.append(lid)
         return out
 
-    def route_all(self, reroute_factor: int = 4) -> dict[str, Route]:
-        """1) hard pass, big pipes first. 2) Every failed line is routed congestion-tolerantly
-        (routed pipes passable at high cost); the lines it runs through are ripped up, the line is
-        committed, and the ripped lines go back in the queue. Bounded by a reroute budget."""
+    def route_all(self, reroute_factor: int = 4, keep: dict | None = None) -> dict[str, Route]:
+        """1) hard pass (headers big-first, stubs, then branches once their header exists).
+        2) Every failed line is routed congestion-tolerantly (routed pipes passable at high cost);
+        the lines it runs through (and their branches) are ripped up, the line is committed and the
+        ripped lines go back in the queue. Bounded by a reroute budget.
+        `keep` = routes to retain unchanged (incremental re-route after an edit)."""
         by_id = {l.id: l for l in self.prj.lines}
-        order = sorted(self.prj.lines, key=lambda l: (-od(l.nps), l.id))
+        base = [l for l in self.prj.lines if not l.is_stub and not l.branch_of]
+        base.sort(key=lambda l: (-od(l.nps), l.id))
+        stubs = [l for l in self.prj.lines if l.is_stub]
+        branches = [l for l in self.prj.lines if l.branch_of]
+
+        def depth(l):
+            d = 0
+            while l.branch_of and d < 20:
+                l, d = by_id[l.branch_of], d + 1
+            return d
+        branches.sort(key=lambda l: (depth(l), -od(l.nps), l.id))
         routes: dict[str, Route] = {}
         pts: dict[str, list] = {}
+        for lid, rt in (keep or {}).items():
+            if lid in by_id and rt.status == "routed":
+                routes[lid], pts[lid] = rt, rt.points
         queue: list[str] = []
-        for ln in order:
-            rt = self.route_line_auto(ln, pts)
+        for ln in base + stubs + branches:
+            if ln.id in pts:
+                continue
+            if ln.branch_of and ln.branch_of not in pts:
+                routes[ln.id] = Route(line_id=ln.id, status="failed", note="header not routed yet")
+                queue.append(ln.id)
+                continue
+            rt = self.route_one(ln, pts)
             routes[ln.id] = rt
             if rt.status == "routed":
                 pts[ln.id] = rt.points
             else:
                 queue.append(ln.id)
-        budget = reroute_factor * len(order)
+        budget = reroute_factor * len(self.prj.lines)
         rips: dict[str, int] = {}
-        gave_up = set()
-        while queue and budget > 0:
+        stall = 0
+        while queue and budget > 0 and stall <= len(queue):
             lid = queue.pop(0)
             ln = by_id[lid]
-            rt = self.route_line_auto(ln, pts)                 # cheap hard retry (state changed)
+            if ln.branch_of and ln.branch_of not in pts:      # wait for the header
+                queue.append(lid)
+                stall += 1
+                continue
+            stall = 0
+            rt = self.route_one(ln, pts)                       # cheap hard retry (state changed)
             if rt.status != "routed":
-                rt = self.route_line(ln, pts, soft=True)
+                rt = self.route_one(ln, pts, soft=True)
             if rt.status != "routed":
-                routes[lid] = rt
-                gave_up.add(lid)                                # infeasible even ignoring pipes
+                routes[lid] = rt                                # infeasible even ignoring pipes
                 continue
             conf = self._conflicts(ln, rt.points, pts)
             if len(conf) > 12 or any(rips.get(c, 0) >= 4 for c in conf):
                 routes[lid] = Route(line_id=lid, status="failed", note="congestion: too many conflicts")
-                gave_up.add(lid)
                 continue
+            ripped = set()
             for c in conf:
-                pts.pop(c)
-                routes[c] = Route(line_id=c, status="failed", note="ripped up")
-                rips[c] = rips.get(c, 0) + 1
-                queue.append(c)
-            budget -= len(conf)
+                ripped.add(c)
+                ripped |= self._descendants(c)
+            for c in sorted(ripped):
+                if c in pts:
+                    pts.pop(c)
+                    routes[c] = Route(line_id=c, status="failed", note="ripped up")
+                    rips[c] = rips.get(c, 0) + 1
+                    queue.append(c)
+            budget -= len(ripped)
             routes[lid], pts[lid] = rt, rt.points
         for lid in queue:       # budget exhausted
             if routes[lid].status != "routed":
@@ -399,15 +532,29 @@ class Router:
 
     def _place_valves(self):
         by_id = {l.id: l for l in self.prj.lines}
+        taps: dict[str, list] = {}
         for lid, rt in self.routes.items():
             ln = by_id[lid]
+            if rt.status == "routed" and ln.branch_of:
+                taps.setdefault(ln.branch_of, []).append(rt.points[-1])
+        for lid, rt in self.routes.items():
+            ln = by_id[lid]
+            rt.valve_positions = []
             if rt.status != "routed" or not ln.valves:
                 continue
+            n = len(ln.valves)
+            keep_off = valve_ftf(ln.nps) / 2 + 300.0
             legs = [(math.dist(a, b), a, b) for a, b in zip(rt.points, rt.points[1:])]
             legs.sort(key=lambda t: -t[0])
-            L, a, b = legs[0]
-            n = len(ln.valves)
-            ux = [(b[i] - a[i]) / L for i in range(3)]
-            for k, vt in enumerate(ln.valves):
-                t = L * (k + 1) / (n + 1)
-                rt.valve_positions.append((vt, tuple(a[i] + ux[i] * t for i in range(3))))
+            chosen = None
+            for L, a, b in legs:
+                ux = [(b[i] - a[i]) / L for i in range(3)]
+                spots = [tuple(a[i] + ux[i] * L * (k + 1) / (n + 1) for i in range(3)) for k in range(n)]
+                if all(math.dist(sp, t) >= keep_off for sp in spots for t in taps.get(lid, [])):
+                    chosen = spots
+                    break
+            if chosen is None:
+                L, a, b = legs[0]
+                ux = [(b[i] - a[i]) / L for i in range(3)]
+                chosen = [tuple(a[i] + ux[i] * L * (k + 1) / (n + 1) for i in range(3)) for k in range(n)]
+            rt.valve_positions = list(zip(ln.valves, chosen))

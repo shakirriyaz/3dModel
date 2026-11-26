@@ -45,6 +45,15 @@ class Line(BaseModel):
     spec: str = "A1"
     service: str = ""
     valves: list[str] = []                # e.g. ["gate", "check"]
+    # `to` may be "@FREE" (stub to the plant boundary) or "@<line id>" (branch: tee into that line)
+
+    @property
+    def branch_of(self):
+        return self.to[1:] if self.to.startswith("@") and self.to != "@FREE" else None
+
+    @property
+    def is_stub(self):
+        return self.to == "@FREE"
 
 
 class RackSpec(BaseModel):
@@ -94,6 +103,8 @@ class QCItem(BaseModel):
     severity: Literal["error", "warning"]
     subject: str
     message: str
+    at: Optional[Vec] = None          # location of the finding (mm), when known
+    key: str = ""                      # stable id (check|subject|message) for status/waivers
 
 
 class QCReport(BaseModel):

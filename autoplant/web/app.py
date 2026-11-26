@@ -4,6 +4,8 @@ import io, json, os, shutil, tempfile, uuid, zipfile
 from pathlib import Path
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from pydantic import BaseModel
+from .. import editing
 from ..io_neutral import load_project
 from ..pipeline import run, ALL_OUTPUTS
 from ..standards import PROFILES
@@ -97,6 +99,33 @@ def get_zip(job: str):
     from fastapi.responses import StreamingResponse
     return StreamingResponse(buf, media_type="application/zip",
                              headers={"Content-Disposition": f"attachment; filename=autoplant_{job}.zip"})
+
+
+class EditBody(BaseModel):
+    ops: list[dict]
+
+
+@app.post("/api/jobs/{job}/edit")
+def edit_job(job: str, body: EditBody):
+    d = _out(job)
+    try:
+        return editing.edit_dir(str(d), body.ops)
+    except (editing.EditError, KeyError, ValueError) as e:
+        raise HTTPException(422, f"{type(e).__name__}: {e}")
+
+
+@app.post("/api/jobs/{job}/undo")
+def undo_job(job: str):
+    d = _out(job)
+    try:
+        return editing.undo_dir(str(d))
+    except editing.EditError as e:
+        raise HTTPException(409, str(e))
+
+
+@app.get("/api/jobs/{job}/history")
+def job_history(job: str):
+    return editing.history(str(_out(job)))
 
 
 def main():

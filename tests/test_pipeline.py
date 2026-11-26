@@ -76,7 +76,7 @@ def test_rack_disabled_when_equipment_in_lane(tmp_path):
     prj.equipment[0].position = (0.0, 0.0)          # fixed inside the lane
     res = run(prj, str(tmp_path), ["qc_report"])
     assert not res.project.rack.active and res.project.notes
-    assert any(i.check == "rack_lane" for i in res.qc.items)
+    assert any(i.check == "input_note" for i in res.qc.items)
 
 
 def test_workspace_page_and_scene():
@@ -88,3 +88,47 @@ def test_workspace_page_and_scene():
     scene = c.get(f"/api/jobs/{job}/file/scene.json").json()
     assert scene["lines"] and scene["steel"] and scene["qc"]["passed"] and scene["bom"]
     assert c.get("/workspace/doesnotexist").status_code == 404
+
+
+def test_manual_edit_move_reroutes_only_affected_and_undo(tmp_path):
+    from autoplant import editing
+    prj = load_project(f"{EX}/separator_skid.json")
+    res = run(prj, str(tmp_path / "out"))
+    assert res.qc.passed
+    before = {k: v.points for k, v in res.routes.items()}
+    out = editing.edit_dir(str(tmp_path / "out"), [{"op": "move_equipment", "id": "V-102", "dx": 2000, "dy": 1000}])
+    assert out["status"] in ("PASSED", "FAILED")
+    after_prj, after_routes = editing.load_state(str(tmp_path / "out"))
+    assert after_prj.eq("V-102").position[1] == res.project.eq("V-102").position[1] + 1000
+    # lines not touching V-102 keep their route unless they now collide
+    untouched = [l for l in ("L-1001", "L-1002", "L-1003", "L-1004") if after_routes[l].points == before[l]]
+    assert untouched, "unaffected lines should be kept"
+    assert set(out["rerouted"]) >= {"L-1005", "L-1006"}
+    assert len(editing.history(str(tmp_path / "out"))) == 1
+    editing.undo_dir(str(tmp_path / "out"))
+    back_prj, back_routes = editing.load_state(str(tmp_path / "out"))
+    assert back_prj.eq("V-102").position == res.project.eq("V-102").position
+    assert {k: v.points for k, v in back_routes.items()} == before
+
+
+def test_edit_validation_and_qc_still_runs(tmp_path):
+    from autoplant import editing
+    run(load_project(f"{EX}/separator_skid.json"), str(tmp_path / "out"))
+    import pytest
+    with pytest.raises(editing.EditError):
+        editing.edit_dir(str(tmp_path / "out"), [{"op": "set_line", "id": "NOPE", "nps": 4}])
+    assert editing.history(str(tmp_path / "out")) == []          # failed edit leaves no snapshot
+    # drop a pump on top of a vessel: QC must flag it, edit must not bypass checks
+    out = editing.edit_dir(str(tmp_path / "out"), [{"op": "move_equipment", "id": "P-101A", "x": 4000, "y": 0}])
+    assert out["errors"] > 0 and out["status"] == "FAILED"
+
+
+def test_edit_api(tmp_path):
+    c = TestClient(app)
+    job = c.post("/api/run", data={"example": "separator_skid.json", "standard": "generic", "outputs": "qc_report"}).json()["job"]
+    r = c.post(f"/api/jobs/{job}/edit", json={"ops": [{"op": "set_line", "id": "L-1005", "nps": 6}]})
+    assert r.status_code == 200 and "L-1005" in r.json()["rerouted"]
+    assert c.get(f"/api/jobs/{job}/history").json()[0]["ops"][0]["op"] == "set_line"
+    assert c.post(f"/api/jobs/{job}/edit", json={"ops": [{"op": "bogus"}]}).status_code == 422
+    assert c.post(f"/api/jobs/{job}/undo").status_code == 200
+    assert c.post(f"/api/jobs/{job}/undo").status_code == 409

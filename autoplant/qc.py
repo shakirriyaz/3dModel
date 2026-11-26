@@ -20,22 +20,37 @@ def _overlap(b1, b2, tol=TOL):
     return all(b1[0][i] < b2[1][i] - tol and b2[0][i] < b1[1][i] - tol for i in range(3))
 
 
+def _centre(b1, b2):
+    """Centre of the overlap volume of two boxes."""
+    return tuple((max(b1[0][i], b2[0][i]) + min(b1[1][i], b2[1][i])) / 2 for i in range(3))
+
+
 def _axis(a, b):
     d = [abs(b[i] - a[i]) for i in range(3)]
     return [i for i in range(3) if d[i] > TOL]
+
+
+def _tee_pair(prj, routes, l1, i1, l2, i2) -> bool:
+    by = {l.id: l for l in prj.lines}
+    for br, bi, hd in ((l1, i1, l2), (l2, i2, l1)):
+        if by[br].branch_of == hd and bi == len(routes[br].points) - 2:
+            return True
+    return False
 
 
 def run_qc(prj: Project, routes: dict[str, Route], std: Profile) -> QCReport:
     items: list[QCItem] = []
     checks = ["completeness", "nozzle_connectivity", "orthogonality", "pipe_size_known", "min_leg",
               "bend_count", "equipment_clash", "pipe_clash", "equipment_overlap", "headroom",
-              "valve_fit", "duplicate_nozzle_use", "rack_clash", "self_clash"]
+              "valve_fit", "duplicate_nozzle_use", "rack_clash", "self_clash", "tee_geometry", "input_note"]
 
-    def add(check, sev, subj, msg):
-        items.append(QCItem(check=check, severity=sev, subject=subj, message=msg))
+    def add(check, sev, subj, msg, at=None):
+        items.append(QCItem(check=check, severity=sev, subject=subj, message=msg,
+                            at=None if at is None else tuple(round(v, 1) for v in at),
+                            key=f"{check}|{subj}|{msg}"))
 
     for note in prj.notes:
-        add("rack_lane", "warning", "rack", note)
+        add("input_note", "warning", "input", note)
 
     # equipment overlap (layout)
     boxes = {e.id: e.box() for e in prj.equipment}
@@ -55,6 +70,8 @@ def run_qc(prj: Project, routes: dict[str, Route], std: Profile) -> QCReport:
     seen: dict[str, str] = {}
     for ln in prj.lines:
         for ref in (ln.from_, ln.to):
+            if ref.startswith("@"):
+                continue
             if ref in seen:
                 add("duplicate_nozzle_use", "error", ln.id, f"nozzle {ref} also used by {seen[ref]} (branches/tees not supported yet)")
             seen[ref] = ln.id
@@ -71,11 +88,31 @@ def run_qc(prj: Project, routes: dict[str, Route], std: Profile) -> QCReport:
         pts = rt.points
         # endpoints at nozzles
         for ref, pt in ((ln.from_, pts[0]), (ln.to, pts[-1])):
+            if ref.startswith("@"):
+                continue
             eid, nid = split_ref(ref)
             e = prj.eq(eid)
             nz = next(n for n in e.nozzles if n.id == nid)
             if math.dist(e.nozzle_pos(nz), pt) > TOL:
                 add("nozzle_connectivity", "error", ln.id, f"route does not terminate at {ref}")
+        if ln.branch_of:
+            hdr = routes.get(ln.branch_of)
+            if hdr is None or hdr.status != "routed":
+                add("tee_geometry", "error", ln.id, f"header {ln.branch_of} not routed")
+            else:
+                tap, ok = pts[-1], False
+                for a, b in zip(hdr.points, hdr.points[1:]):
+                    ax = _axis(a, b)
+                    if len(ax) != 1:
+                        continue
+                    k = ax[0]
+                    others = [i for i in range(3) if i != k]
+                    if all(abs(tap[i] - a[i]) < TOL for i in others) and min(a[k], b[k]) + TOL < tap[k] < max(a[k], b[k]) - TOL:
+                        last = _axis(pts[-2], pts[-1])
+                        ok = last != [k] and len(last) == 1
+                        break
+                if not ok:
+                    add("tee_geometry", "error", ln.id, f"branch does not meet header {ln.branch_of} perpendicularly inside a straight run", tap)
         # orthogonality / zero legs
         bends = 0
         for i, (a, b) in enumerate(zip(pts, pts[1:])):
@@ -115,14 +152,14 @@ def run_qc(prj: Project, routes: dict[str, Route], std: Profile) -> QCReport:
         sb = _seg_box(a, b, r)
         for e in prj.equipment:
             if _overlap(sb, e.box()):
-                add("equipment_clash", "error", lid, f"leg {i} intersects equipment {e.id}")
+                add("equipment_clash", "error", lid, f"leg {i} intersects equipment {e.id}", _centre(sb, e.box()))
     # pipe vs rack steel (exact, no extra clearance)
     steel = rackmod.boxes(prj)
     for lid, i, a, b, r in seg_index:
         sb = _seg_box(a, b, r)
         for name, lo, hi in steel:
             if _overlap(sb, (lo, hi)):
-                add("rack_clash", "error", lid, f"leg {i} intersects rack steel {name}")
+                add("rack_clash", "error", lid, f"leg {i} intersects rack steel {name}", _centre(sb, (lo, hi)))
     # a line passing through itself (non-adjacent legs)
     by_line: dict[str, list] = {}
     for lid, i, a, b, r in seg_index:
@@ -131,7 +168,8 @@ def run_qc(prj: Project, routes: dict[str, Route], std: Profile) -> QCReport:
         for x in range(len(segs)):
             for y in range(x + 2, len(segs)):
                 if _overlap(_seg_box(segs[x][1], segs[x][2], segs[x][3]), _seg_box(segs[y][1], segs[y][2], segs[y][3])):
-                    add("self_clash", "error", lid, f"legs {segs[x][0]} and {segs[y][0]} intersect")
+                    add("self_clash", "error", lid, f"legs {segs[x][0]} and {segs[y][0]} intersect",
+                        _centre(_seg_box(segs[x][1], segs[x][2], segs[x][3]), _seg_box(segs[y][1], segs[y][2], segs[y][3])))
     # pipe-pipe clash (sweep along x over inflated boxes keeps this near-linear)
     half = std.pipe_gap / 2
     cand = []
@@ -145,9 +183,12 @@ def run_qc(prj: Project, routes: dict[str, Route], std: Profile) -> QCReport:
                 break
             if l1 == l2 or not _overlap(bb1, bb2):
                 continue
+            if _tee_pair(prj, routes, l1, i1, l2, i2):
+                continue          # the branch's last leg legitimately meets its header at the tee
             hard = _overlap(_seg_box(a1, b1, r1), _seg_box(a2, b2, r2))
             add("pipe_clash", "error" if hard else "warning", f"{l1}/{l2}",
-                "pipes intersect" if hard else f"pipe gap < {std.pipe_gap:.0f} mm (legs {i1}/{i2})")
+                "pipes intersect" if hard else f"pipe gap < {std.pipe_gap:.0f} mm (legs {i1}/{i2})",
+                _centre(bb1, bb2))
     errors = sum(1 for i in items if i.severity == "error")
     return QCReport(passed=errors == 0, errors=errors, warnings=len(items) - errors,
                     checks_run=checks, items=items, standard=std.name, standard_validated=std.validated)

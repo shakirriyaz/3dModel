@@ -2,7 +2,7 @@
 from __future__ import annotations
 import math
 from .model import Project, Nozzle, split_ref, DIRS
-from .catalog import EQUIP_TEMPLATES
+from .catalog import EQUIP_TEMPLATES, od
 from .standards import Profile
 from . import rack as rackmod
 
@@ -11,10 +11,37 @@ def _snap(v, p):
     return round(v / p) * p
 
 
+def _max_od(prj: Project) -> dict:
+    """Largest connected pipe OD per equipment (drives equipment size and nozzle spacing)."""
+    m: dict[str, float] = {e.id: 0.0 for e in prj.equipment}
+    for ln in prj.lines:
+        for ref in (ln.from_, ln.to):
+            if not ref.startswith("@"):
+                eid = split_ref(ref)[0]
+                if eid in m:
+                    m[eid] = max(m[eid], od(ln.nps))
+    return m
+
+
 def apply_templates(prj: Project):
+    mod = _max_od(prj)
     for e in prj.equipment:
         shape, size, elev = EQUIP_TEMPLATES.get(e.kind, EQUIP_TEMPLATES["generic"])
         e.shape = e.shape or shape
+        if e.size is None:                       # scale the template to the pipes it carries
+            D = mod.get(e.id, 0.0)
+            sx, sy, sz = size
+            if e.shape == "cylinder_v":
+                dia = max(sx, 5 * D)
+                sx = sy = dia
+                sz = max(sz, 8 * D)
+            elif e.shape == "cylinder_h":
+                dia = max(sy, 4 * D)
+                sy = sz = dia
+                sx = max(sx, 3 * dia)
+            else:
+                sx, sy, sz = max(sx, 4 * D), max(sy, 3 * D), max(sz, 2 * D)
+            size = (sx, sy, sz)
         e.size = e.size or size
         if e.elevation is None:
             e.elevation = elev
@@ -42,6 +69,7 @@ def place_equipment(prj: Project, std: Profile):
 
 def _place_block(prj, std, grp, x, use_lane):
     p = prj.grid_pitch
+    mod = _max_od(prj)
     ids = {e.id for e in grp}
     succ = {e.id: set() for e in grp}
     for ln in prj.lines:
@@ -88,24 +116,26 @@ def _place_block(prj, std, grp, x, use_lane):
                 for e in g2:
                     e.position = (_snap(x + width / 2, p), _snap(yc + side * (y + e.size[1] / 2), p))
                     y += e.size[1] + std.equip_spacing
-        x += width + std.equip_spacing
+        # big pipes need room for two bends + minimum legs between layers
+        gap = max(std.equip_spacing, 8.0 * max(mod.get(e.id, 0.0) for e in items))
+        x += width + math.ceil(gap / p) * p
     return x
 
 
-def _slots(shape, sy, sz):
+def _slots(shape, sy, sz, step=1000.0):
     """Candidate (lateral, vertical) nozzle offsets on a face, preferred first."""
     mid = sz / 2
     out = [(0.0, mid)]
     for k in range(1, 8):
         for s in (1, -1):
-            v = mid + s * k * 1000.0
+            v = mid + s * k * step
             if 250 <= v <= sz - 250 and shape != "box":
                 out.append((0.0, v))
     if shape == "box" or len(out) < 4:
         lat = sy / 2 - 250
         for k in range(1, 8):
             for s in (1, -1):
-                l = s * k * 750.0
+                l = s * k * max(750.0, step * 0.75)
                 if abs(l) <= max(lat, 0):
                     out.append((l, mid))
     return out
@@ -126,17 +156,33 @@ def auto_nozzles(prj: Project):
     """Create/complete nozzles for every line end, facing the partner equipment."""
     p = prj.grid_pitch
     used: dict[tuple[str, str], int] = {}
+    cx = sum(e.position[0] for e in prj.equipment) / len(prj.equipment)
+    cy = sum(e.position[1] for e in prj.equipment) / len(prj.equipment)
+    by_id = {l.id: l for l in prj.lines}
+    mod = _max_od(prj)
+
+    def partner(ref, ln):
+        """Equipment used to pick the nozzle face: a stub looks outward, a branch toward its header's far end."""
+        if ref == "@FREE":
+            e0 = prj.eq(split_ref(ln.from_)[0])
+            return type("P", (), {"position": (2 * e0.position[0] - cx, 2 * e0.position[1] - cy)})()
+        if ref.startswith("@"):
+            return prj.eq(split_ref(by_id[ref[1:]].to)[0] if not by_id[ref[1:]].to.startswith("@") else split_ref(by_id[ref[1:]].from_)[0])
+        return prj.eq(split_ref(ref)[0])
+
     for ln in prj.lines:
         for end, other in ((ln.from_, ln.to), (ln.to, ln.from_)):
+            if end.startswith("@"):
+                continue
             eid, nid = split_ref(end)
-            oid, _ = split_ref(other)
-            e, o = prj.eq(eid), prj.eq(oid)
+            e, o = prj.eq(eid), partner(other, ln)
             if nid is None:
                 nid = f"{ln.id}-{'S' if end == ln.from_ else 'E'}"
                 if end == ln.from_:
                     ln.from_ = f"{eid}.{nid}"
                 else:
                     ln.to = f"{eid}.{nid}"
+            step = max(1000.0, math.ceil((2.2 * mod.get(eid, 0) + 300) / p) * p)
             nz = next((n for n in e.nozzles if n.id == nid), None)
             if nz is None:
                 nz = Nozzle(id=nid)
@@ -157,7 +203,7 @@ def auto_nozzles(prj: Project):
                         slots = _top_slots(sx, sy)
                     else:
                         w = sy if d[0] else sx
-                        slots = _slots(e.shape, w, sz)
+                        slots = _slots(e.shape, w, sz, step)
                     k = used.get((eid, cand), 0)
                     if k < len(slots):
                         chosen = (cand, d, slots[k])
@@ -174,3 +220,5 @@ def auto_nozzles(prj: Project):
                     nz.offset = (d[0] * sx / 2, _snap(lat, p), _snap(vert, p))
                 else:
                     nz.offset = (_snap(lat, p), d[1] * sy / 2, _snap(vert, p))
+    for e in prj.equipment:
+        e.nozzles = [n for n in e.nozzles if n.offset is not None]

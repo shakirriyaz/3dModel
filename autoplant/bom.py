@@ -6,6 +6,10 @@ from .catalog import od, wall, elbow_takeoff, valve_ftf, weight_per_m
 
 def build_bom(prj: Project, routes: dict[str, Route]) -> list[dict]:
     rows = []
+    n_br: dict[str, int] = {}
+    for l in prj.lines:
+        if l.branch_of:
+            n_br[l.branch_of] = n_br.get(l.branch_of, 0) + 1
     for ln in prj.lines:
         rt = routes.get(ln.id)
         if rt is None or rt.status != "routed":
@@ -19,7 +23,9 @@ def build_bom(prj: Project, routes: dict[str, Route]) -> list[dict]:
         rows.append({"line": ln.id, "service": ln.service, "spec": ln.spec, "nps": ln.nps,
                      "od_mm": od(ln.nps), "wall_mm": wall(ln.nps),
                      "route_length_m": round(sum(legs) / 1000, 3), "pipe_cut_length_m": round(cut / 1000, 3),
-                     "elbows_90_lr": bends, "flanges_wn": 2, "gaskets": 2, "bolt_sets": 2,
+                     "elbows_90_lr": bends, "tees": n_br.get(ln.id, 0),
+                     "flanges_wn": 1 if ln.branch_of else 2, "gaskets": 1 if ln.branch_of else 2,
+                     "bolt_sets": 1 if ln.branch_of else 2,
                      "valves": ";".join(v for v, _ in rt.valve_positions),
                      "weight_kg": round(cut / 1000 * weight_per_m(ln.nps), 1)})
     return rows

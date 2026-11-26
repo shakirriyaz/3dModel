@@ -103,6 +103,11 @@ def write_ifc(prj: Project, routes: dict[str, Route], path: str):
             prof = sb.circle(radius=r * 1.05)
             item = sb.extrude(prof, magnitude=r * 2.1, position=Vector((c[0], c[1], c[2] - r * 1.05)))
             make("IfcPipeFitting", f"{lid}-EL{i}", [item], predefined="BEND", props=props)
+        if ln.branch_of:
+            c = pts[-1]
+            prof = sb.circle(radius=r * 1.2)
+            item = sb.extrude(prof, magnitude=r * 2.4, position=Vector((c[0], c[1], c[2] - r * 1.2)))
+            make("IfcPipeFitting", f"{lid}-TEE", [item], predefined="JUNCTION", props=props)
         for vt, p in rt.valve_positions:
             L = valve_ftf(ln.nps)
             prof = sb.rectangle(size=(r * 3, r * 3))
