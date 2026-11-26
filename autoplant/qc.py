@@ -64,7 +64,8 @@ def run_qc(prj: Project, routes: dict[str, Route], std: Profile) -> QCReport:
             if _overlap(ba, bb):
                 hard = _overlap(boxes[a], boxes[b])
                 add("equipment_overlap", "error" if hard else "warning", f"{a}/{b}",
-                    "equipment overlap" if hard else f"spacing below {std.equip_spacing:.0f} mm")
+                    "equipment overlap" if hard else f"spacing below {std.equip_spacing:.0f} mm",
+                    _centre(boxes[a], boxes[b]) if hard else _centre(ba, bb))
 
     # nozzle use
     seen: dict[str, str] = {}

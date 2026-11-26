@@ -15,6 +15,8 @@ ROOT.mkdir(parents=True, exist_ok=True)
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples"
 STATIC = Path(__file__).parent / "static"
 app = FastAPI(title="AutoPlant")
+from .projects import router as projects_router
+app.include_router(projects_router)
 
 
 @app.get("/", response_class=HTMLResponse)
