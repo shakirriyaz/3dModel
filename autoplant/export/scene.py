@@ -2,6 +2,8 @@
 from __future__ import annotations
 import json
 from ..model import Project, Route
+from .. import supports as supmod
+from ..standards import get_profile
 from .. import rack as rackmod
 
 
@@ -17,12 +19,20 @@ def scene_dict(prj: Project, routes: dict[str, Route], stamp: str, qc=None, bom=
         rt = routes.get(ln.id)
         if rt and rt.status == "routed":
             dm = prj.dims(ln)
-            lines.append({"id": ln.id, "nps": ln.nps, "r": dm.r, "od": dm.od, "takeoff": dm.takeoff, "points": rt.points,
+            try:
+                sp_info = supmod.allowable_span(prj, ln, get_profile(prj.standard))
+            except Exception:
+                sp_info = {"span": 0, "basis": ""}
+            lines.append({"id": ln.id, "allow_span": round(sp_info["span"]), "span_basis": sp_info["basis"], "supports_manual": ln.supports_manual, "nps": ln.nps, "r": dm.r, "od": dm.od, "takeoff": dm.takeoff, "points": rt.points,
                           "from": ln.from_, "to": ln.to, "spec": ln.spec, "service": ln.service,
                           "route": rt.note or "open routing",
                           "valves": [[v, p] for v, p in rt.valve_positions]})
     steel = [{"id": n, "lo": lo, "hi": hi} for n, lo, hi in rackmod.boxes(prj)]
-    d = {"name": prj.name, "stamp": stamp, "equipment": eq, "lines": lines, "steel": steel,
+    sup = [{"id": s.id, "line": s.line, "kind": s.kind, "mounting": s.mounting, "p": s.pos, "h": s.height, "s": s.s,
+            "load_op": s.load_op_n, "load_hydro": s.load_hydro_n, "lateral": s.lateral_n, "code": s.code, "desc": s.description,
+            "auto": s.auto, "note": s.note} for s in prj.supports]
+    d = {"name": prj.name, "stamp": stamp, "equipment": eq, "lines": lines, "steel": steel, "supports": sup,
+         "rack": {"bay": prj.rack.bay, "active": prj.rack.active},
          "failed": [{"id": k, "note": v.note} for k, v in routes.items() if v.status != "routed"]}
     if qc is not None:
         d["qc"] = json.loads(qc.model_dump_json())
@@ -71,6 +81,7 @@ function cyl(e){const r=(e.hi[0]-e.lo[0])/2,cx=(e.lo[0]+e.hi[0])/2,cy=(e.lo[1]+e
 function cylh(e){const r=(e.hi[1]-e.lo[1])/2,cy=(e.lo[1]+e.hi[1])/2,cz=(e.lo[2]+e.hi[2])/2;
  for(const x of [e.lo[0],e.hi[0]]){let prev=null;for(let k=0;k<=24;k++){const a=k/24*Math.PI*2,p=[x,cy+r*Math.cos(a),cz+r*Math.sin(a)];if(prev)line(prev,p,'#9ab',1);prev=p;}}
  for(let k=0;k<8;k++){const a=k/8*Math.PI*2;line([e.lo[0],cy+r*Math.cos(a),cz+r*Math.sin(a)],[e.hi[0],cy+r*Math.cos(a),cz+r*Math.sin(a)],'#9ab',1);}}
+function marker3(p,col){const q=pr(p);ctx.fillStyle=col;ctx.fillRect(q[0]-4,q[1]-4,8,8);ctx.strokeStyle='#000';ctx.lineWidth=1;ctx.strokeRect(q[0]-4,q[1]-4,8,8);}
 function draw(){cv.width=innerWidth;cv.height=innerHeight;ctx.clearRect(0,0,cv.width,cv.height);
  // grid
  const g=Math.ceil(span/10/1000)*1000;for(let x=Math.floor(mn[0]/g)*g;x<=mx[0]+g;x+=g)line([x,mn[1]-g,0],[x,mx[1]+g,0],'#233',1);
@@ -79,6 +90,7 @@ function draw(){cv.width=innerWidth;cv.height=innerHeight;ctx.clearRect(0,0,cv.w
   const c=pr([(e.lo[0]+e.hi[0])/2,(e.lo[1]+e.hi[1])/2,e.hi[2]]);ctx.fillStyle='#cde';ctx.fillText(e.id,c[0]-12,c[1]-6);
   e.nozzles.forEach(n=>{const p=pr(n.p);ctx.fillStyle='#fff';ctx.fillRect(p[0]-2,p[1]-2,4,4);});});
  (D.steel||[]).forEach(e=>box(e.lo,e.hi,'#6b7a8f'));
+ (D.supports||[]).forEach(s=>{const c={rest:'#7ddc7d',guide:'#ffd54f',anchor:'#ff6b6b',riser_guide:'#4dd0e1',hanger:'#ce93d8'}[s.kind]||'#7ddc7d';if(s.h>0&&(s.mounting==='stanchion'||s.mounting==='rack_beam'))line([s.p[0],s.p[1],s.p[2]-s.h],s.p,'#889',1);marker3(s.p,c);});
  const segs=[];D.lines.forEach((l,i)=>{for(let k=0;k<l.points.length-1;k++){const a=l.points[k],b=l.points[k+1];segs.push({a,b,l,i,d:(pr(a)[2]+pr(b)[2])/2});}});
  segs.sort((p,q)=>q.d-p.d);
  segs.forEach(s=>{const sc=pr(s.a)[3];line(s.a,s.b,colors[s.i%8],Math.max(2,s.l.r*2*sc));});

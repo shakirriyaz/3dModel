@@ -96,6 +96,12 @@ def build_iso(prj: Project, ln, rt: Route, std: DrawingStandard, ok: bool, stamp
         w_rows = [[w["tag"], "FIELD" if w["field"] else "SHOP", w["joint"], w["size"]] for w in fab["welds"]]
         yb, _ = titleblock.table(sh, std, rx, yb - 3, ["WELD", "TYPE", "JOINT", "SIZE"], [14, 14, 40, 14], w_rows, title="WELD LIST", row_h=4.4,
                                  max_rows=max(int((yb - (strip_top + 40)) // 4.4) - 4, 3))
+        sups = sorted([s for s in prj.supports if s.line == ln.id], key=lambda s: s.s)
+        if std.show_supports and sups:
+            sp_rows = [[f"S{k}", s.kind.replace("_", " "), f"{s.pos[2]:.0f}", f"{max(s.load_op_n, s.load_hydro_n) / 1000:.2f}", s.mounting.replace("_", " ")]
+                       for k, s in enumerate(sups, 1)]
+            yb, _ = titleblock.table(sh, std, rx, yb - 4, ["SUPP", "TYPE", "EL", "kN", "MOUNT"], [14, 24, 16, 14, 28], sp_rows, title="SUPPORTS (PRELIMINARY LOADS)", row_h=4.2,
+                                     max_rows=max(int((yb - (strip_top + 70)) // 4.2) - 3, 3), more="supports.csv")
         if std.show_spools:
             s_rows = [[s["tag"], f'{s["length"]:.0f}', f'{s["cut_m"]:.2f}', f'{s["weight_kg"]:.0f}', s["welds"]] for s in fab["spools"]]
             titleblock.table(sh, std, rx, yb - 4, ["SPOOL", "LEN mm", "PIPE m", "kg", "WELDS"], [16, 20, 20, 14, 18], s_rows, title="SPOOLS", row_h=4.4, max_rows=8)
@@ -184,6 +190,39 @@ def build_iso(prj: Project, ln, rt: Route, std: DrawingStandard, ok: bool, stamp
         n = (-u[1], u[0])
         for off in (-0.55, 0.55):
             sh.line([(c[0] + u[0] * off + n[0] * 2.1, c[1] + u[1] * off + n[1] * 2.1), (c[0] + u[0] * off - n[0] * 2.1, c[1] + u[1] * off - n[1] * 2.1)], std.w_pipe * 0.8, layer="SYMBOL")
+
+    # supports
+    if std.show_supports:
+        for k, sp_ in enumerate(sorted([s for s in prj.supports if s.line == ln.id], key=lambda s: s.s), 1):
+            c = P(sp_.pos)
+            u = leg_dir_at(sp_.s)
+            n = (-u[1], u[0])
+            vertical = abs(u[1]) > 0.9 and abs(u[0]) < 0.2
+            if sp_.kind in ("rest", "guide", "anchor") and not vertical:
+                base_y = c[1] - 4.2
+                sh.poly([c, (c[0] - 2.4, base_y), (c[0] + 2.4, base_y)], std.w_thin, "white", layer="SYMBOL")
+                sh.line([(c[0] - 3.4, base_y), (c[0] + 3.4, base_y)], std.w_pipe, layer="SYMBOL")
+            if sp_.kind == "guide" or sp_.kind == "riser_guide" or vertical:
+                for sg in (1, -1):
+                    sh.line([(c[0] + n[0] * 2.6 * sg - u[0] * 1.6, c[1] + n[1] * 2.6 * sg - u[1] * 1.6),
+                             (c[0] + n[0] * 2.6 * sg + u[0] * 1.6, c[1] + n[1] * 2.6 * sg + u[1] * 1.6)], std.w_pipe, layer="SYMBOL")
+            if sp_.kind == "anchor":
+                sh.rect(c[0] - 2.2, c[1] - 2.2, 4.4, 4.4, std.w_thin, None, layer="SYMBOL")
+                sh.line([(c[0] - 2.2, c[1] - 2.2), (c[0] + 2.2, c[1] + 2.2)], std.w_thin, layer="SYMBOL")
+                sh.line([(c[0] - 2.2, c[1] + 2.2), (c[0] + 2.2, c[1] - 2.2)], std.w_thin, layer="SYMBOL")
+            lbl = f"S{k}"
+            lw = len(lbl) * std.text_h * 0.6
+            spots = [(3.2, -7.4), (-3.2 - lw, -7.4), (3.2, 4.0), (-3.2 - lw, 4.0), (3.2, -11.0), (-3.2 - lw, -11.0), (3.2, 7.5), (-3.2 - lw, 7.5)]
+            placed_lbl = False
+            for dx, dy in spots:
+                box = (c[0] + dx, c[1] + dy, c[0] + dx + lw, c[1] + dy + std.text_h * 0.8)
+                if not occ.hit(box, 0.2):
+                    sh.text(c[0] + dx, c[1] + dy, lbl, std.text_h * 0.85, bold=True, color="blue")
+                    occ.add(box)
+                    placed_lbl = True
+                    break
+            if not placed_lbl:                                   # crowded: tag anyway (a missing tag is worse than an overlap)
+                sh.text(c[0] + 3.2, c[1] - 7.4, lbl, std.text_h * 0.85, bold=True, color="blue")
 
     # welds
     if std.show_welds:

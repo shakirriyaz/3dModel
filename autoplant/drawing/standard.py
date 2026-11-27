@@ -46,6 +46,7 @@ class DrawingStandard(BaseModel):
     show_coordinates: bool = True
     show_north: bool = True
     show_spools: bool = True
+    show_supports: bool = True
     # --- fabrication
     spool_max_length: float = 12000.0   # transport / shop limit; longer runs get field welds
     spool_fmt: str = "S{n}"

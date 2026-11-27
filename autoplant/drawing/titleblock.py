@@ -104,7 +104,7 @@ def notes_block(sh: Sheet, std: DrawingStandard, x, y_top, width, extra: list[st
     return y
 
 
-def table(sh: Sheet, std: DrawingStandard, x, y_top, headers, widths, rows, title=None, row_h=4.8, max_rows=None):
+def table(sh: Sheet, std: DrawingStandard, x, y_top, headers, widths, rows, title=None, row_h=4.8, max_rows=None, more="mto.csv"):
     """Simple ruled table. Returns (y_bottom, rows_drawn)."""
     y = y_top
     if title:
@@ -120,7 +120,7 @@ def table(sh: Sheet, std: DrawingStandard, x, y_top, headers, widths, rows, titl
     n = 0
     for r in rows:
         if max_rows is not None and n >= max_rows:
-            sh.text(x + 1.0, y - row_h + 1.4, f"... {len(rows) - n} more rows - see mto.csv", std.text_h * 0.75, color="grey", layer="TABLE")
+            sh.text(x + 1.0, y - row_h + 1.4, f"... {len(rows) - n} more rows - see {more}", std.text_h * 0.75, color="grey", layer="TABLE")
             y -= row_h
             break
         sh.rect(x, y - row_h, total, row_h, std.w_thin, layer="TABLE")

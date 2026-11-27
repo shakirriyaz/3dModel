@@ -76,6 +76,26 @@ def write_ifc(prj: Project, routes: dict[str, Route], path: str):
         item = sb.extrude(prof, magnitude=sz, position=((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, lo[2]))
         make("IfcColumn" if "-C" in name else "IfcBeam", name, [item], props={"Role": "pipe rack steel"})
 
+    for s in prj.supports:
+        ln_ = next((l for l in prj.lines if l.id == s.line), None)
+        r_ = prj.dims(ln_).r if ln_ else 50.0
+        pred = {"rest": "SHOE", "guide": "BRACKET", "riser_guide": "BRACKET"}.get(s.kind, "USERDEFINED")
+        shoe = sb.rectangle(size=(max(300.0, r_ * 3), max(300.0, r_ * 3)))
+        item = sb.extrude(shoe, magnitude=100.0, position=(s.pos[0], s.pos[1], s.pos[2] - r_ - 100.0))
+        el = make("IfcDiscreteAccessory", s.id, [item], predefined=pred,
+                  props={"SupportType": s.kind, "Mounting": s.mounting, "Line": s.line, "Code": s.code, "Description": s.description,
+                         "LoadOperating_N": s.load_op_n, "LoadHydrotest_N": s.load_hydro_n, "LateralEstimate_N": s.lateral_n,
+                         "Preliminary": "Preliminary loads - not a stress analysis"}, pset="AutoPlant_Support")
+        if pred == "USERDEFINED":
+            try:
+                el.ObjectType = s.kind.upper()
+            except Exception:
+                pass
+        if s.mounting == "stanchion" and s.height > 0:
+            col = sb.rectangle(size=(prj.rack.width * 0 + 250.0, 250.0))
+            make("IfcColumn", s.id + "-STANCHION", [sb.extrude(col, magnitude=s.height, position=(s.pos[0], s.pos[1], 0.0))],
+                 props={"Role": "pipe support stanchion", "Support": s.id})
+
     by_id = {l.id: l for l in prj.lines}
     for lid, rt in routes.items():
         if rt.status != "routed":

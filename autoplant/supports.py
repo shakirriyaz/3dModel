@@ -437,13 +437,16 @@ def generate(prj: Project, routes: dict[str, Route], std: Profile) -> list[Suppo
         wo = (w["pipe"] + w["op"] + w["ins"]) * G / 1000.0           # N/mm
         wh = (w["pipe"] + w["hydro"] + w["ins"]) * G / 1000.0
         valves = [(run._s_of(p), valve_weight(prj, ln, vt) * G) for vt, p in rt.valve_positions]
+        valve_load = [0.0] * len(S)                    # each valve is carried by exactly ONE support (nearest; ties -> the lower one)
+        for sv, vw in valves:
+            valve_load[min(range(len(S)), key=lambda k: (abs(S[k] - sv), k))] += vw
         for idx, (s, kd) in enumerate(zip(S, kinds)):
             left = s - (S[idx - 1] if idx else 0.0)
             right = (S[idx + 1] if idx + 1 < len(S) else run.L) - s
             lo_trib = left if idx == 0 else left / 2
             hi_trib = right if idx + 1 == len(S) else right / 2
             trib = lo_trib + hi_trib
-            vload = sum(vw for sv, vw in valves if abs(sv - s) == min(abs(sv - x) for x in S))
+            vload = valve_load[idx]
             pos = point_at(run.pts, run.cum, s)
             tier = _on_rack_leg(prj, run, s)
             if tier is not None:

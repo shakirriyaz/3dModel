@@ -73,12 +73,43 @@ def build_mto(prj: Project, routes: dict[str, Route]) -> list[dict]:
         a["qty"] += c["qty"]
         a["weight_kg"] += c["weight_kg"] or 0.0
         a["lines"].add(c["line"])
+    # supports and their stanchion steel
+    for s in prj.supports:
+        ln = next((l for l in prj.lines if l.id == s.line), None)
+        if ln is None:
+            continue
+        key = ("support", s.code or s.description, "ea")
+        a = agg.setdefault(key, {"kind": "support", "code": s.code, "description": s.description or f"{s.kind} support", "nps": ln.nps,
+                                 "unit": "ea", "qty": 0.0, "weight_kg": 0.0, "lines": set()})
+        a["qty"] += 1
+        a["weight_kg"] += s.weight_kg or 0.0
+        a["lines"].add(s.line)
+        if s.mounting == "stanchion" and s.height > 0:
+            k2 = ("steel", "STANCHION", "m")
+            st = agg.setdefault(k2, {"kind": "steel", "code": "STANCHION", "description": "Stanchion post, steel section (GENERIC 250 mm - size by load)", "nps": 0,
+                                     "unit": "m", "qty": 0.0, "weight_kg": 0.0, "lines": set()})
+            st["qty"] += s.height / 1000.0
+            st["weight_kg"] += s.height / 1000.0 * 40.0            # ~40 kg/m generic section
+            st["lines"].add(s.line)
     rows = []
-    for a in sorted(agg.values(), key=lambda a: (["pipe", "elbow", "branch", "flange", "gasket", "bolting", "valve"].index(a["kind"]), a["nps"], a["code"])):
+    for a in sorted(agg.values(), key=lambda a: (["pipe", "elbow", "branch", "flange", "gasket", "bolting", "valve", "support", "steel"].index(a["kind"]), a["nps"], a["code"])):
         rows.append({"kind": a["kind"], "code": a["code"], "description": a["description"], "nps": a["nps"], "unit": a["unit"],
                      "qty": round(a["qty"], 2) if a["unit"] == "m" else int(round(a["qty"])), "weight_kg": round(a["weight_kg"], 1),
                      "lines": len(a["lines"])})
     return rows
+
+
+def support_rows(prj: Project) -> list[dict]:
+    """Support schedule (one row per support) - the hand-off to structural / stress / procurement."""
+    return [{"tag": s.id, "line": s.line, "type": s.kind, "mounting": s.mounting, "x_mm": round(s.pos[0]), "y_mm": round(s.pos[1]),
+             "el_mm": round(s.pos[2]), "s_along_line_mm": round(s.s), "stanchion_height_mm": round(s.height) if s.mounting in ("stanchion", "rack_beam") else "",
+             "load_operating_kN": round(s.load_op_n / 1000, 2), "load_hydrotest_kN": round(s.load_hydro_n / 1000, 2),
+             "lateral_est_kN": round(s.lateral_n / 1000, 2), "code": s.code, "description": s.description,
+             "origin": "auto" if s.auto else "manual", "note": s.note} for s in prj.supports]
+
+
+def support_csv(rows: list[dict]) -> str:
+    return _csv(rows)
 
 
 def build_bom(prj: Project, routes: dict[str, Route]) -> list[dict]:

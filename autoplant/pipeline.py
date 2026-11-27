@@ -6,7 +6,7 @@ from .model import Project, Route, QCReport
 from .standards import get_profile
 from . import layout, routing, qc, bom, rack, clash, supports
 
-ALL_OUTPUTS = ["ifc", "dxf", "iso_pdf", "iso_svg", "iso_dxf", "ga_pdf", "ga_dxf", "bom_csv", "qc_report", "clash_report", "viewer", "step"]
+ALL_OUTPUTS = ["ifc", "dxf", "iso_pdf", "iso_svg", "iso_dxf", "ga_pdf", "ga_dxf", "pcf", "bom_csv", "qc_report", "clash_report", "viewer", "step"]
 
 
 @dataclass
@@ -67,6 +67,11 @@ def run(prj: Project, outdir: str, outputs=None, standard: str | None = None, ke
         os.makedirs(os.path.join(outdir, "iso"), exist_ok=True)
         for name in x_iso.write_svgs(prj, routes, os.path.join(outdir, "iso"), stamp):
             res.files.append("iso/" + name)
+    if "pcf" in outputs:
+        from .export import pcf as x_pcf
+        os.makedirs(os.path.join(outdir, "pcf"), exist_ok=True)
+        for name in x_pcf.write_pcfs(prj, routes, os.path.join(outdir, "pcf")):
+            res.files.append("pcf/" + name)
     if "ga_pdf" in outputs:
         x_iso.write_ga_pdf(prj, routes, out("general_arrangement.pdf"), stamp)
     if "ga_dxf" in outputs:
@@ -82,6 +87,8 @@ def run(prj: Project, outdir: str, outputs=None, standard: str | None = None, ke
             f.write(bom.bom_csv(rows))
         with open(out("mto.csv"), "w") as f:
             f.write(bom.mto_csv(bom.build_mto(prj, routes)))
+        with open(out("supports.csv"), "w") as f:
+            f.write(bom.support_csv(bom.support_rows(prj)))
     if "qc_report" in outputs:
         with open(out("qc_report.json"), "w") as f:
             f.write(report.model_dump_json(indent=1))

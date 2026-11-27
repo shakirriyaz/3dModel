@@ -115,6 +115,16 @@ def build_ga(prj: Project, routes: dict[str, Route], std: DrawingStandard, ok: b
             u = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
             sh.arrow((m[0] - u[0] * 3, m[1] - u[1] * 3), (m[0] + u[0] * 2, m[1] + u[1] * 2), 2.6, std.w_thin)
 
+    # supports: small squares at their position (coloured by type), stanchion drawn in elevation
+    if std.show_supports:
+        for s_ in prj.supports:
+            q = T(s_.pos)
+            col = {"anchor": "red", "guide": "blue"}.get(s_.kind, "black")
+            if view != "plan" and s_.height > 0 and s_.mounting in ("stanchion", "rack_beam"):
+                q0 = T((s_.pos[0], s_.pos[1], s_.pos[2] - s_.height))
+                sh.line([q0, q], std.w_thin * 1.4, "grey", layer="SYMBOL")
+            sh.rect(q[0] - 0.9, q[1] - 0.9, 1.8, 1.8, std.w_thin, col if s_.kind != "rest" else None, col, "SYMBOL")
+
     # north arrow (plan) / elevation datum (elevations)
     ax, ay = area[2] - 14, area[3] - 14
     if view == "plan":

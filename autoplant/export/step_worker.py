@@ -74,6 +74,13 @@ def main():
             parts.append((f"{ln['id']}-{vt.upper()}", box([p[0] - r * 1.5, p[1] - r * 1.5, p[2] - r * 1.5],
                                                          [p[0] + r * 1.5, p[1] + r * 1.5, p[2] + r * 1.5])))
 
+    for s_ in scene.get("supports", []):
+        px, py, pz = s_["p"]
+        rr = max([ln_["r"] for ln_ in scene["lines"] if ln_["id"] == s_["line"]] or [50.0])
+        parts.append((s_["id"], box([px - max(150, rr * 1.5), py - max(150, rr * 1.5), pz - rr - 100], [px + max(150, rr * 1.5), py + max(150, rr * 1.5), pz - rr])))
+        if s_["mounting"] == "stanchion" and s_["h"] > 0:
+            parts.append((s_["id"] + "-STANCHION", box([px - 125, py - 125, 0], [px + 125, py + 125, pz - rr - 100])))
+
     # XDE document so every solid carries its tag name in the STEP file
     try:
         from OCP.TDocStd import TDocStd_Document
