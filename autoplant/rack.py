@@ -26,12 +26,48 @@ def lane_half(prj: Project, equip_clearance: float) -> float:
     return prj.rack.width / 2 + equip_clearance
 
 
-def finalize(prj: Project, equip_clearance: float):
-    """After layout: fix rack x-extent; disable (with a note) if equipment sits in the lane."""
+def design_bay(prj: Project, std) -> float:
+    """Bay from the shortest allowable span among the lines that will use the rack (long-haul, small enough for a tier)."""
+    from . import supports
+    r = prj.rack
+    spans = []
+    for ln in prj.lines:
+        if ln.is_stub or ln.branch_of:
+            continue
+        dm = prj.dims(ln)
+        if dm.r > MAX_RACK_RADIUS:
+            continue
+        try:
+            ends = []
+            for ref in (ln.from_, ln.to):
+                e = prj.eq(ref.split(".")[0])
+                nz = next((n for n in e.nozzles if n.id == ref.split(".", 1)[1]), None)
+                ends.append(e.nozzle_pos(nz)[0] if nz is not None and nz.offset is not None else e.position[0])
+        except (KeyError, StopIteration, IndexError):
+            continue
+        if abs(ends[0] - ends[1]) >= r.long_threshold:
+            spans.append(supports.allowable_span(prj, ln, std)["span"])
+    if not spans:
+        return r.bay_max
+    return max(r.bay_min, min(r.bay_max, math.floor(min(spans) / 500.0) * 500.0))
+
+
+def finalize(prj: Project, std):
+    """After layout: fix the rack bay and x-extent; disable (with a note) if equipment sits in the lane."""
+    equip_clearance = std if isinstance(std, (int, float)) else std.equip_clearance
     r = prj.rack
     r.active = False
     if not wanted(prj):
         return
+    if not r.bay_max:
+        r.bay_max = r.bay
+    if r.bay_auto and not isinstance(std, (int, float)):
+        r.bay = design_bay(prj, std)
+        prj.notes = [n for n in prj.notes if not n.startswith("rack bay")]
+        if r.bay < r.bay_max:
+            prj.notes.append(f"rack bay set to {r.bay:.0f} mm (from {r.bay_max:.0f} mm) so the pipes on the rack stay within their allowable span")
+    else:
+        r.bay = r.bay_max
     lo = min(e.box()[0][0] for e in prj.equipment)
     hi = max(e.box()[1][0] for e in prj.equipment)
     r.x0 = math.floor((lo - r.bay) / r.bay) * r.bay

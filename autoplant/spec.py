@@ -25,6 +25,7 @@ class PipeRow(BaseModel):
     wall: float
     schedule: str = ""
     weight_kg_m: Optional[float] = None
+    max_span: Optional[float] = None         # company span table (mm), overrides the calculated span
     code: str = ""
     description: str = ""
 
@@ -74,6 +75,16 @@ class BranchRow(BaseModel):
     description: str = ""
 
 
+class SupportRow(BaseModel):
+    kind: str                                   # rest | guide | anchor | riser_guide | hanger
+    nps_min: float = 0.0
+    nps_max: float = 999.0
+    max_load_kn: float                          # rated vertical load
+    code: str = ""
+    description: str = ""
+    weight_kg: Optional[float] = None
+
+
 class PipeSpec(BaseModel):
     code: str
     description: str = ""
@@ -86,6 +97,7 @@ class PipeSpec(BaseModel):
     valves: list[ValveRow] = []
     flanges: list[FlangeRow] = []
     branches: list[BranchRow] = []
+    supports: list[SupportRow] = []
 
 
 class Issue(BaseModel):
@@ -184,6 +196,13 @@ class SpecView:
         """Branch-table entry; None when the table has none (caller decides how strict to be)."""
         return self._br.get((header_nps, branch_nps))
 
+    def max_span_override(self, nps: float):
+        r = self._pipe.get(nps)
+        return r.max_span if r is not None else None
+
+    def support_rows(self, kind: str):
+        return [r for r in (self.spec.supports if self.spec else []) if r.kind == kind]
+
     def default_branch_type(self, header_nps: float, branch_nps: float) -> str:
         if branch_nps >= header_nps:
             return "tee"
@@ -228,7 +247,7 @@ class Dims:
 
 # ----------------------------------------------------------------------------- import
 
-TABLES = ("classes", "pipe", "fittings", "valves", "flanges", "branches")
+TABLES = ("classes", "pipe", "fittings", "valves", "flanges", "branches", "supports")
 ALIASES = {
     "class": "class", "spec": "class", "piping_class": "class", "pipe_class": "class", "code": "code_c",
     "nps": "nps", "size": "nps", "size_in": "nps", "nps_in": "nps", "dn": "dn",
@@ -250,6 +269,8 @@ ALIASES = {
     "bolts": "bolts", "bolt_count": "bolts", "bolt_size": "bolt_size",
     "gasket_code": "gasket_code", "gasket_description": "gasket_description",
     "min_nps": "min_nps", "max_nps": "max_nps",
+    "max_span": "max_span", "max_span_mm": "max_span", "span": "max_span", "max_support_span_mm": "max_span",
+    "nps_min": "nps_min", "nps_max": "nps_max", "max_load_kn": "max_load_kn", "swl_kn": "max_load_kn", "load_kn": "max_load_kn", "rated_load_kn": "max_load_kn",
 }
 
 
@@ -390,7 +411,7 @@ def build_specs(tables: dict[str, list[dict]], source: str) -> tuple[dict[str, P
         if (mn and nps < mn) or (mx and nps > mx):
             warn("pipe", i, f"NPS {nps:g} is outside the class range {mn or ''}-{mx or ''}")
         s.pipe.append(PipeRow(nps=nps, od=od, wall=wall, schedule=r.get("schedule", ""),
-                              weight_kg_m=_num(issues, "pipe", i, r, "weight_kg_m"),
+                              weight_kg_m=_num(issues, "pipe", i, r, "weight_kg_m"), max_span=_num(issues, "pipe", i, r, "max_span"),
                               code=r.get("code_c", ""), description=r.get("description", "")))
     for s in specs.values():
         if not s.pipe:
@@ -434,6 +455,21 @@ def build_specs(tables: dict[str, list[dict]], source: str) -> tuple[dict[str, P
                                    weight_kg=_num(issues, "flanges", i, r, "weight_kg"), code=r.get("code_c", ""),
                                    description=r.get("description", ""), gasket_code=r.get("gasket_code", ""),
                                    gasket_description=r.get("gasket_description", "")))
+    for i, r in enumerate(tables.get("supports", []), 2):
+        s = cls("supports", i, r)
+        kind = (r.get("kind") or r.get("type") or "").strip().lower().replace(" ", "_").replace("-", "_")
+        if kind not in ("rest", "guide", "anchor", "riser_guide", "hanger"):
+            err("supports", i, f"kind must be rest, guide, anchor, riser_guide or hanger (got {kind!r})")
+            continue
+        load = _num(issues, "supports", i, r, "max_load_kn", True)
+        lo, hi = _num(issues, "supports", i, r, "nps_min", positive=False), _num(issues, "supports", i, r, "nps_max")
+        if s is None or load is None:
+            continue
+        if lo is not None and hi is not None and lo > hi:
+            err("supports", i, "nps_min is larger than nps_max")
+            continue
+        s.supports.append(SupportRow(kind=kind, nps_min=lo or 0.0, nps_max=hi or 999.0, max_load_kn=load, code=r.get("code_c", ""),
+                                     description=r.get("description", ""), weight_kg=_num(issues, "supports", i, r, "weight_kg")))
     seen = set()
     for i, r in enumerate(tables.get("branches", []), 2):
         s = cls("branches", i, r)
@@ -467,8 +503,10 @@ def build_specs(tables: dict[str, list[dict]], source: str) -> tuple[dict[str, P
             warn("flanges", None, f"class {s.code} defines no flanges - generic flange descriptions will be used in the BOM")
         if not s.branches:
             warn("branches", None, f"class {s.code} has no branch table - a default tee/olet rule is applied")
+        if not s.supports:
+            warn("supports", None, f"class {s.code} has no support catalogue - a generic placeholder catalogue is used for supports")
     summary = {c: {"description": s.description, "rating": s.rating, "material": s.material, "sizes": sorted({p.nps for p in s.pipe}),
-                   "pipe": len(s.pipe), "valves": len(s.valves), "fittings": len(s.fittings), "flanges": len(s.flanges),
+                   "pipe": len(s.pipe), "supports": len(s.supports), "valves": len(s.valves), "fittings": len(s.fittings), "flanges": len(s.flanges),
                    "branches": len(s.branches)} for c, s in specs.items()}
     ok = not any(i.severity == "error" for i in issues)
     return (specs if ok else {}), ImportReport(ok=ok, source=source, classes=summary, issues=issues)
@@ -511,6 +549,9 @@ def export_json(specs: dict[str, PipeSpec]) -> dict:
             out["valves"].append({"class": s.code, **v.model_dump()})
         for f in s.flanges:
             out["flanges"].append({"class": s.code, **f.model_dump()})
+        for sr in s.supports:
+            out["supports"].append({"class": s.code, "kind": sr.kind, "nps_min": sr.nps_min, "nps_max": sr.nps_max, "max_load_kn": sr.max_load_kn,
+                                    "code": sr.code, "description": sr.description, "weight_kg": sr.weight_kg})
         for b in s.branches:
             out["branches"].append({"class": s.code, "header_nps": b.header_nps, "branch_nps": b.branch_nps, "type": b.type,
                                     "takeoff": b.run_c, "takeoff2": b.branch_m, "code": b.code, "description": b.description})

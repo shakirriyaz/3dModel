@@ -4,7 +4,7 @@ import json, os, time
 from dataclasses import dataclass, field
 from .model import Project, Route, QCReport
 from .standards import get_profile
-from . import layout, routing, qc, bom, rack, clash
+from . import layout, routing, qc, bom, rack, clash, supports
 
 ALL_OUTPUTS = ["ifc", "dxf", "iso_pdf", "iso_svg", "iso_dxf", "ga_pdf", "ga_dxf", "bom_csv", "qc_report", "clash_report", "viewer", "step"]
 
@@ -30,9 +30,10 @@ def build_model(prj: Project, standard: str | None = None, keep: dict | None = N
     layout.apply_templates(prj)
     layout.place_equipment(prj, std)
     layout.auto_nozzles(prj)
-    rack.finalize(prj, std.equip_clearance)
+    rack.finalize(prj, std)
     router = routing.Router(prj, std)
     routes = router.route_all(keep=keep)
+    prj.supports = supports.generate(prj, routes, std)
     report = qc.run_qc(prj, routes, std)
     return std, routes, report
 

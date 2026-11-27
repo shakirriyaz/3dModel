@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from .model import Project, Route, QCItem, QCReport, split_ref
 from .standards import Profile
-from . import rack as rackmod, catalog
+from . import rack as rackmod, catalog, supports as supmod
 
 TOL = 1.0
 
@@ -42,7 +42,8 @@ def run_qc(prj: Project, routes: dict[str, Route], std: Profile) -> QCReport:
     checks = ["completeness", "nozzle_connectivity", "orthogonality", "pipe_size_known", "min_leg",
               "bend_count", "equipment_clash", "pipe_clash", "equipment_overlap", "headroom",
               "valve_fit", "duplicate_nozzle_use", "rack_clash", "self_clash", "tee_geometry", "input_note", "spec_unknown", "size_not_in_spec",
-              "valve_not_in_spec", "branch_not_in_spec", "builtin_catalogue"]
+              "valve_not_in_spec", "branch_not_in_spec", "builtin_catalogue", "support_span", "support_missing",
+              "support_valve", "support_position", "support_load", "support_structure", "support_clash"]
 
     def add(check, sev, subj, msg, at=None):
         items.append(QCItem(check=check, severity=sev, subject=subj, message=msg,
@@ -215,6 +216,7 @@ def run_qc(prj: Project, routes: dict[str, Route], std: Profile) -> QCReport:
             add("pipe_clash", "error" if hard else "warning", f"{l1}/{l2}",
                 "pipes intersect" if hard else f"pipe gap < {std.pipe_gap:.0f} mm (legs {i1}/{i2})",
                 _centre(bb1, bb2))
+    items += supmod.check(prj, routes, std)
     errors = sum(1 for i in items if i.severity == "error")
     return QCReport(passed=errors == 0, errors=errors, warnings=len(items) - errors,
                     checks_run=checks, items=items, standard=std.name, standard_validated=std.validated)

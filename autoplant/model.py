@@ -47,6 +47,7 @@ class Line(BaseModel):
     spec: str = "A1"
     service: str = ""
     valves: list[str] = []                # e.g. ["gate", "check"]
+    supports_manual: bool = False         # True: supports on this line were edited by hand and are not regenerated
     # `to` may be "@FREE" (stub to the plant boundary) or "@<line id>" (branch: tee into that line)
 
     @property
@@ -67,10 +68,32 @@ class RackSpec(BaseModel):
     bay: float = 6000.0
     long_threshold: float = 12000.0   # lines whose nozzles are further apart in X use the rack
     y_center: float = 0.0
+    bay_auto: bool = True            # size the bay from the allowable spans of the lines the rack carries (never above `bay_max`)
+    bay_max: float = 0.0             # requested bay (0 -> `bay` at first use)
+    bay_min: float = 3000.0
     # runtime (set by the pipeline)
     active: bool = False
     x0: float = 0.0
     x1: float = 0.0
+
+
+class Support(BaseModel):
+    """One pipe support on one line. `s` = distance along the routed line from its start (mm)."""
+    id: str
+    line: str
+    s: float
+    pos: Vec
+    kind: Literal["rest", "guide", "anchor", "riser_guide", "hanger"] = "rest"
+    mounting: str = "stanchion"          # rack_beam | stanchion | sleeper | needs_steel
+    height: float = 0.0                  # stanchion height, grade to pipe underside (mm)
+    load_op_n: float = 0.0               # preliminary vertical load, operating (N)
+    load_hydro_n: float = 0.0            # preliminary vertical load, hydrotest (N)
+    lateral_n: float = 0.0               # preliminary guide/anchor load (N), friction-based
+    code: str = ""
+    description: str = ""
+    weight_kg: float = 0.0
+    auto: bool = True
+    note: str = ""
 
 
 class Project(BaseModel):
@@ -84,6 +107,7 @@ class Project(BaseModel):
     notes: list[str] = []
     specs: dict[str, PipeSpec] = {}          # imported piping classes; empty -> built-in generic catalogue
     spec_source: dict = {}                   # {name, sha1, imported_at, warnings: [...]}
+    supports: list[Support] = []
     drawing: DrawingStandard = DrawingStandard()   # isometric / GA drawing standard (title block, sheet, conventions)
     equipment: list[Equipment]
     lines: list[Line]

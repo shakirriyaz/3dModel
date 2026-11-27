@@ -42,6 +42,8 @@ def test_sample_imports_in_every_format(tmp_path):
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
     for t, rows in sp.export_json(specs).items():
+        if not rows:
+            continue
         ws = wb.create_sheet(t)
         cols = list(rows[0])
         ws.append(cols)

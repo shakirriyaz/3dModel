@@ -24,6 +24,47 @@ def load_state(out_dir: str) -> tuple[Project, dict[str, Route]]:
     return prj, routes
 
 
+def _support_op(prj, op):
+    """Manual support edits. The first manual edit on a line freezes its current auto supports as manual ones,
+    so the engineer starts from the automatic layout; `auto_supports` hands the line back to the generator."""
+    from .model import Support
+    kind = op["op"]
+    by = {l.id: l for l in prj.lines}
+    if kind == "auto_supports":
+        ln = by.get(op["line"])
+        if ln is None:
+            raise EditError(f"unknown line {op['line']}")
+        ln.supports_manual = False
+        prj.supports = [s for s in prj.supports if s.line != ln.id]
+        return
+    if kind == "add_support":
+        ln = by.get(op["line"])
+        if ln is None:
+            raise EditError(f"unknown line {op['line']}")
+    else:
+        sup = next((s for s in prj.supports if s.id == op["id"]), None)
+        if sup is None:
+            raise EditError(f"unknown support {op['id']}")
+        ln = by[sup.line]
+    for s in prj.supports:
+        if s.line == ln.id:
+            s.auto = False
+    ln.supports_manual = True
+    if kind == "add_support":
+        k = op.get("kind", "rest")
+        if k not in ("rest", "guide", "anchor", "riser_guide", "hanger"):
+            raise EditError(f"unknown support kind {k!r}")
+        if float(op["s"]) <= 0:
+            raise EditError("support position s must be > 0 mm from the line start")
+        prj.supports.append(Support(id="NEW", line=ln.id, s=float(op["s"]), pos=(0, 0, 0), kind=k, auto=False))
+    elif kind == "move_support":
+        if float(op["s"]) <= 0:
+            raise EditError("support position s must be > 0 mm from the line start")
+        sup.s = float(op["s"])
+    elif kind == "delete_support":
+        prj.supports = [s for s in prj.supports if s.id != sup.id]
+
+
 def _sig(prj, ln):
     """Geometry-relevant dimensions of a line (what a spec change can alter)."""
     dm = prj.dims(ln)
@@ -90,6 +131,8 @@ def apply_ops(prj: Project, ops: list[dict]) -> set[str]:
                 l.spec = to
                 if _sig(prj, l) != before:
                     dirty.add(l.id)
+        elif kind in ("add_support", "move_support", "delete_support", "auto_supports"):
+            _support_op(prj, op)
         elif kind == "reroute":
             dirty.add(op["id"])
         elif kind == "set_nozzle":
@@ -172,7 +215,7 @@ def _run_edit(out_dir: str, mutate, record: dict, outputs=None, author: str = ""
     prj.notes = [x for x in prj.notes if not x.startswith("pipe rack")]
     std = get_profile(prj.standard)
     was_rack = prj.rack.active
-    rackmod.finalize(prj, std.equip_clearance)
+    rackmod.finalize(prj, std)
     from . import layout
     layout.apply_templates(prj)
     layout.auto_nozzles(prj)
