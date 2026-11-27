@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Literal, Optional
 from pydantic import BaseModel, Field, ConfigDict
 from .spec import PipeSpec, SpecView, Dims
+from .drawing.standard import DrawingStandard
 
 Vec = tuple[float, float, float]
 DIRS = {"+x": (1, 0, 0), "-x": (-1, 0, 0), "+y": (0, 1, 0), "-y": (0, -1, 0),
@@ -83,6 +84,7 @@ class Project(BaseModel):
     notes: list[str] = []
     specs: dict[str, PipeSpec] = {}          # imported piping classes; empty -> built-in generic catalogue
     spec_source: dict = {}                   # {name, sha1, imported_at, warnings: [...]}
+    drawing: DrawingStandard = DrawingStandard()   # isometric / GA drawing standard (title block, sheet, conventions)
     equipment: list[Equipment]
     lines: list[Line]
 

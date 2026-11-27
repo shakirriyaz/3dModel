@@ -141,6 +141,23 @@ def spec_template():
     return specapi.template_zip()
 
 
+@app.get("/api/drawing-standard/template")
+def drawing_standard_template():
+    from ..drawing.standard import BUILTIN
+    return JSONResponse(BUILTIN["iso_generic"].model_dump(), headers={"Content-Disposition": "attachment; filename=drawing_standard.json"})
+
+
+@app.post("/api/jobs/{job}/drawing-standard")
+def job_drawing_standard(job: str, file: UploadFile = File(...)):
+    try:
+        data = json.loads(file.file.read())
+        return editing.set_drawing_standard_dir(str(_out(job)), data)
+    except json.JSONDecodeError as e:
+        raise HTTPException(422, f"not valid JSON: {e}")
+    except editing.EditError as e:
+        raise HTTPException(422, str(e))
+
+
 @app.post("/api/jobs/{job}/spec")
 def job_spec_import(job: str, file: UploadFile = File(...)):
     return specapi.import_spec(str(_out(job)), file.filename or "spec.zip", file.file.read(), author="")

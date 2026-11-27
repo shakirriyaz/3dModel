@@ -36,7 +36,7 @@ a{color:var(--acc)}
 @media(max-width:900px){#left{width:170px}#right{display:none}}
 </style></head><body>
 <div id="top"><b>AutoPlant</b><span id="proj"></span><span id="badge" class="badge"></span><span id="rev" class="mut"></span><span style="flex:1"></span><span id="who" class="mut"></span><a href="/">Home</a></div>
-<div id="banner"></div><input type="file" id="specfile" accept=".zip,.xlsx,.xlsm,.json" style="display:none">
+<div id="banner"></div><input type="file" id="stdfile" accept=".json" style="display:none"><input type="file" id="specfile" accept=".zip,.xlsx,.xlsm,.json" style="display:none">
 <div id="tabs"></div><div id="ribbon"></div>
 <div id="main">
  <div id="left" class="side"><h3>Model Explorer</h3><input id="filter" placeholder="Filter (tag, line, area)…"><div id="tree"></div></div>
@@ -53,7 +53,7 @@ const colors=['#4fc3f7','#ffb74d','#81c784','#ba68c8','#f06292','#fff176','#4db6
 let az=-0.9,el=0.55,zoom=1,pan=[0,0],ctr=[0,0,0],span=1,sel=null,pin=null,layers={equip:true,pipe:true,steel:true,noz:true,grid:true,marks:true};
 let tab='Model',btab='Review';
 const TABS={Model:['Iso','Plan','Front','Side','Fit','|','Equipment','Piping','Rack steel','Nozzles','Grid'],
- Edit:['Undo last edit','Re-route selected','Delete selected line'],Draw:['Isometrics PDF','DXF plan','Isometric (selected line)'],
+ Edit:['Undo last edit','Re-route selected','Delete selected line'],Draw:['Isometrics PDF','Isometric (selected line)','Isometric DXF (selected)','GA drawings PDF','GA drawings DXF','Model DXF','Drawing standard…','Standard template (JSON)'],
  Spec:['Import spec…','Map class codes…','Spec template (zip)','Export spec (JSON)','Use built-in catalogue'],
  Review:['Add markup','Clash report (HTML)','Clash report (CSV)','Zoom to first issue'],Output:['All files (zip)','IFC','STEP','BOM CSV','QC report']};
 const $=id=>document.getElementById(id);
@@ -85,7 +85,9 @@ function ribbon(){$('ribbon').innerHTML=TABS[tab].map(x=>x=='|'?'<span class="se
 function act(a){const f=BASE+'/file/';
  const M={'Iso':()=>{az=-0.9;el=0.55;draw()},'Plan':()=>{az=0;el=1.5;draw()},'Front':()=>{az=0;el=0;draw()},'Side':()=>{az=-1.57;el=0;draw()},'Fit':()=>{zoom=1;pan=[0,0];draw()},
  'Equipment':()=>tog('equip'),'Piping':()=>tog('pipe'),'Rack steel':()=>tog('steel'),'Nozzles':()=>tog('noz'),'Grid':()=>tog('grid'),
- 'Isometrics PDF':()=>open(f+'isometrics.pdf'),'DXF plan':()=>open(f+'plant.dxf'),'IFC':()=>open(f+'plant.ifc'),'STEP':()=>open(f+'plant.step'),'BOM CSV':()=>open(f+'bom.csv'),'QC report':()=>open(f+'qc_report.md'),
+ 'Isometrics PDF':()=>open(f+'isometrics.pdf'),'GA drawings PDF':()=>open(f+'general_arrangement.pdf'),'GA drawings DXF':()=>open(f+'general_arrangement.dxf'),'Model DXF':()=>open(f+'plant.dxf'),
+ 'Drawing standard…':()=>{if(!canEdit()){toast('You have view-only access',1);return}$('stdfile').click()},'Standard template (JSON)':()=>open('/api/drawing-standard/template'),
+ 'Isometric DXF (selected)':()=>{if(sel&&sel.t=='line')open(f+'iso_dxf/'+sel.id.replace(/[^A-Za-z0-9_-]/g,'_')+'.dxf');else toast('Select a line first',1)},'IFC':()=>open(f+'plant.ifc'),'STEP':()=>open(f+'plant.step'),'BOM CSV':()=>open(f+'bom.csv'),'QC report':()=>open(f+'qc_report.md'),
  'All files (zip)':()=>open(BASE+'/zip'),
  'Isometric (selected line)':()=>{if(sel&&sel.t=='line')open(f+'iso/'+sel.id+'.svg');else toast('Select a line first',1)},
  'Import spec…':()=>{if(!canEdit()){toast('You have view-only access',1);return}$('specfile').click()},
@@ -223,6 +225,9 @@ addEventListener('mouseup',e=>{if(drag&&!moved&&e.target===cv){const r=cv.getBou
 addEventListener('mousemove',e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.abs(dx)+Math.abs(dy)>2)moved=true;drag.x=e.clientX;drag.y=e.clientY;if(drag.s){pan[0]+=dx;pan[1]+=dy;}else{az+=dx*0.008;el=Math.max(-1.5,Math.min(1.5,el+dy*0.008));}draw();});
 cv.ondblclick=e=>{const r=cv.getBoundingClientRect(),h=pickAt(e.clientX-r.left,e.clientY-r.top);if(h)pickById(h.id,true);};
 cv.onwheel=e=>{e.preventDefault();zoom*=e.deltaY<0?1.1:0.9;draw();};addEventListener('resize',draw);
+$('stdfile').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;const fd=new FormData();fd.append('file',f);if(MODE==='project')fd.append('base_rev',REV);
+ toast('Applying drawing standard…');const r=await fetch(BASE+'/drawing-standard',{method:'POST',body:fd});let j=null;try{j=await r.json()}catch(x){}
+ if(!r.ok){toast('Drawing standard rejected: '+(typeof j.detail==='string'?j.detail:JSON.stringify(j.detail)),1);return}toast('Drawing standard applied – drawings regenerated');await load(true);};
 $('specfile').onchange=e=>{const f=e.target.files[0];e.target.value='';if(f)uploadSpec(f);};
 /* ---------------- live updates (project mode) ---------------- */
 setInterval(async()=>{if(MODE!=='project'||!D)return;const r=await fetch(BASE+'/head');if(!r.ok)return;const j=await r.json();

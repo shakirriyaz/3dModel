@@ -11,6 +11,7 @@ def main(argv=None):
     ap.add_argument("-o", "--out", default="out", help="output directory")
     ap.add_argument("--standard", default=None, help=f"profile name {sorted(PROFILES)} or JSON path")
     ap.add_argument("--spec", default=None, help="piping spec: folder/.zip of CSVs, .xlsx or .json (see examples/spec_sample)")
+    ap.add_argument("--drawing-standard", default=None, help="drawing standard: built-in name or a JSON file (see /api/drawing-standard/template)")
     ap.add_argument("--outputs", default=",".join(ALL_OUTPUTS), help="comma list: " + ",".join(ALL_OUTPUTS))
     a = ap.parse_args(argv)
     if a.input.lower().endswith(".xml"):
@@ -28,6 +29,9 @@ def main(argv=None):
             return 2
         prj.specs = specs
         prj.spec_source = {"name": a.spec, "classes": rep.classes}
+    if a.drawing_standard:
+        from .drawing.standard import get_standard
+        prj.drawing = get_standard(a.drawing_standard)
     res = run(prj, a.out, a.outputs.split(","), a.standard)
     print(f"QC {res.status}: {res.qc.errors} errors, {res.qc.warnings} warnings  ({res.seconds:.1f}s)")
     nr = sum(1 for r in res.routes.values() if r.note == "rack")

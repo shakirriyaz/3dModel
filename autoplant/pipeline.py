@@ -6,7 +6,7 @@ from .model import Project, Route, QCReport
 from .standards import get_profile
 from . import layout, routing, qc, bom, rack, clash
 
-ALL_OUTPUTS = ["ifc", "dxf", "iso_pdf", "iso_svg", "bom_csv", "qc_report", "clash_report", "viewer", "step"]
+ALL_OUTPUTS = ["ifc", "dxf", "iso_pdf", "iso_svg", "iso_dxf", "ga_pdf", "ga_dxf", "bom_csv", "qc_report", "clash_report", "viewer", "step"]
 
 
 @dataclass
@@ -66,6 +66,14 @@ def run(prj: Project, outdir: str, outputs=None, standard: str | None = None, ke
         os.makedirs(os.path.join(outdir, "iso"), exist_ok=True)
         for name in x_iso.write_svgs(prj, routes, os.path.join(outdir, "iso"), stamp):
             res.files.append("iso/" + name)
+    if "ga_pdf" in outputs:
+        x_iso.write_ga_pdf(prj, routes, out("general_arrangement.pdf"), stamp)
+    if "ga_dxf" in outputs:
+        x_iso.write_ga_dxf(prj, routes, out("general_arrangement.dxf"), stamp)
+    if "iso_dxf" in outputs:
+        os.makedirs(os.path.join(outdir, "iso_dxf"), exist_ok=True)
+        for name in x_iso.write_dxfs(prj, routes, os.path.join(outdir, "iso_dxf"), stamp):
+            res.files.append("iso_dxf/" + name)
     if "iso_pdf" in outputs:
         x_iso.write_pdf(prj, routes, rows, out("isometrics.pdf"), stamp)
     if "bom_csv" in outputs:

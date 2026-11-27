@@ -252,6 +252,27 @@ def project_spec_import(pid: int, base_rev: int = Form(...), comment: str = Form
     return {"rev": rev, **result}
 
 
+@router.post("/api/projects/{pid}/drawing-standard")
+def project_drawing_standard(pid: int, base_rev: int = Form(...), file: UploadFile = File(...), u: dict = Depends(user), st: Store = Depends(store)):
+    need(st, pid, u, "editor")
+    try:
+        data = json.loads(file.file.read())
+    except json.JSONDecodeError as e:
+        raise HTTPException(422, f"not valid JSON: {e}")
+    with st.plock(pid):
+        cur = st.project(pid)["current_rev"]
+        if base_rev != cur:
+            raise HTTPException(409, {"message": "someone else changed this project - reload and retry", "current_rev": cur})
+        out = os.path.join(st.project_dir(pid), "out")
+        try:
+            result = editing.set_drawing_standard_dir(out, data, outputs=DEFAULT_OUTPUTS, author=u["username"])
+        except editing.EditError as e:
+            raise HTTPException(422, str(e))
+        rev = st.add_revision(pid, u["id"], "drawing", f"drawing standard {data.get('name', '')}", result, os.path.join(out, "model.json"))
+        st.audit(pid, u["id"], "drawing_standard", str(data.get("name", "")))
+    return {"rev": rev, **result}
+
+
 @router.get("/api/projects/{pid}/spec")
 def project_spec(pid: int, u: dict = Depends(user), st: Store = Depends(store)):
     need(st, pid, u, "viewer")

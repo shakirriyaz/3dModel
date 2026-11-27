@@ -9,7 +9,7 @@ from .model import Project, Route, Equipment, Line, Nozzle, split_ref
 from . import pipeline, rack as rackmod
 from .standards import get_profile
 
-OUTPUTS_DEFAULT = ["ifc", "dxf", "iso_pdf", "iso_svg", "bom_csv", "qc_report", "viewer"]
+OUTPUTS_DEFAULT = ["ifc", "dxf", "iso_pdf", "iso_svg", "iso_dxf", "ga_pdf", "ga_dxf", "bom_csv", "qc_report", "clash_report", "viewer"]
 
 
 class EditError(ValueError):
@@ -222,6 +222,20 @@ def import_spec_dir(out_dir: str, name: str, data: bytes | None, outputs=None, a
     out = _run_edit(out_dir, mutate, {"ops": [{"op": "import_spec", "file": name if data is not None else None}]}, outputs, author)
     out["spec_warnings"] = 0 if report is None else len(report.warnings)
     return out
+
+
+def set_drawing_standard_dir(out_dir: str, data: dict, outputs=None, author: str = "") -> dict:
+    """Replace the drawing standard (title block, sheet, conventions). Geometry is untouched, drawings regenerate."""
+    from .drawing.standard import DrawingStandard
+    try:
+        std = DrawingStandard(**data)
+    except Exception as e:                      # pydantic validation error -> readable message
+        raise EditError(f"invalid drawing standard: {str(e)[:300]}")
+
+    def mutate(prj):
+        prj.drawing = std
+        return set()
+    return _run_edit(out_dir, mutate, {"ops": [{"op": "drawing_standard", "name": std.name}]}, outputs, author)
 
 
 def history(out_dir: str) -> list[dict]:

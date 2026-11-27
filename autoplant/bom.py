@@ -41,8 +41,8 @@ def _line_components(prj: Project, ln, rt: Route, kids: list) -> list[dict]:
     add("flange", fl.code if fl else "", (fl.description if fl and fl.description else f'Flange {fl.type if fl else "WN"} {nps:g}" {rating} {mat}'.strip()),
         ends, "ea", fl.weight_kg if fl else None)
     add("gasket", fl.gasket_code if fl else "", (fl.gasket_description if fl and fl.gasket_description else f'Gasket {nps:g}" {rating}'.strip()), ends, "ea")
-    add("bolting", "", f'Bolt set {fl.bolt_size if fl and fl.bolt_size else ""} x{fl.bolts if fl and fl.bolts else "?"} {nps:g}" {rating}'.replace("  ", " ").strip(),
-        ends, "set")
+    bolt = (f'{fl.bolt_size} x{fl.bolts}' if fl and fl.bolt_size and fl.bolts else (f'x{fl.bolts}' if fl and fl.bolts else "")).strip()
+    add("bolting", "", " ".join(f'Bolt set {bolt} {nps:g}" {rating}'.split()), ends, "set")
     for vt, _ in rt.valve_positions:
         v = view.valve_row(vt, nps)
         add("valve", v.code if v else "", (v.description if v and v.description else f'{vt.title()} valve {nps:g}" {v.rating if v and v.rating else rating}'.strip()),

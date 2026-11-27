@@ -25,10 +25,27 @@ Environment: `AUTOPLANT_DATA` (team database + project files, default: temp dir)
 | Layout | `layout.py` | process-flow layers per area along a pipe-rack lane; equipment sized from the pipes it carries; nozzles spaced by pipe size |
 | Routing | `routing.py`, `_astar.py` | compiled (numba) windowed A*; bend penalty; min leg between elbows; clearances; grade/headroom; **pipe-rack-first routing** for long lines; **tees/branches**; boundary stubs; congestion-tolerant rip-up & reroute |
 | QC | `qc.py` | independent re-check of the final geometry: completeness, nozzle connectivity, orthogonality, min leg, equipment/pipe/rack-steel/self clash, spacing, headroom, valve fit, tee geometry, input assumptions. Failed QC stamps outputs `DRAFT - QC FAILED` |
+| Drawings | `drawing/` | **One drawing engine -> SVG, PDF and DXF.** Fabrication isometrics (framed A3 sheet, title block, true-iso projection, aligned dimensions, flow arrows, valve symbols, numbered shop/field welds, bolted-joint marks, spools with field welds at a configurable max length, item balloons, material/cut/weld/spool lists, end coordinates, north arrow, QC status stamp) and general arrangement sheets (plan + 2 elevations, standard scale, grid, tags, line numbers). Everything that differs between companies is a **drawing standard** JSON |
 | Outputs | `export/` | IFC4, STEP (solids + torus elbows + names), DXF, isometrics (SVG per line + PDF), BOM CSV + **material take-off (`mto.csv`, grouped by commodity code)**, QC report, **clash report (CSV/HTML)**, 3D viewer, `scene.json` |
 | Editing | `editing.py` | move equipment / change elevation, line size/spec/valves, add/delete lines & equipment, force re-route. Only affected lines are re-routed, **QC always re-runs**, undo supported |
 | Team | `db.py`, `web/projects.py` | SQLite: users (admin/editor/viewer), project members, numbered **revisions with conflict detection (409)**, restore, markups (anchored to elements/points, threaded, resolve), clash waivers (soft clashes only, comment required, audited), audit log |
 | Web | `web/` | Workspace: model explorer, 3D view with picking, properties + edit panel, Review/Clashes/Markups/History/Spec/Output panels, live "new revision available" banner |
+
+## Drawings and the drawing standard
+```bash
+autoplant plant.xml -o out --outputs iso_pdf,iso_svg,iso_dxf,ga_pdf,ga_dxf --drawing-standard my_standard.json
+```
+Outputs: `isometrics.pdf` (one sheet per line), `iso/*.svg`, `iso_dxf/*.dxf`, `general_arrangement.pdf/.dxf`. Workspace -> **Draw** tab:
+*Drawing standard...* uploads a JSON (company, project no., doc-number patterns, revision, sheet sizes, text/line sizes, switches for
+dimensions/welds/balloons/coordinates/spools, spool max length, weld/spool numbering, general notes); *Standard template (JSON)* downloads the
+built-in `iso_generic` to start from. A standard change keeps the geometry and regenerates all drawings (team projects: a revision, undoable).
+
+**What "matching E3D format" means here:** the sheets follow widely used piping-isometric conventions and are fully configurable, but
+nothing is copied from AVEVA (no AVEVA layouts, symbols, fonts or code, and no reverse engineering). To match *your* company's
+E3D/ISODRAFT output exactly, send one finished isometric + one GA drawing (PDF/DXF) from a past project and the standard's fields
+and symbol set can be tuned to it. Known limits: dimension placement is heuristic (a dimension can land on pipe in a congested loop);
+isometrics are one sheet per line (no continuation sheets / spool-per-sheet yet); a very long plant is drawn on a single GA sheet
+(no match-lines); no insulation/painting/tracing symbols, pipe supports or instrument tags yet.
 
 ## Piping spec import
 ```bash
@@ -53,11 +70,12 @@ export AUTOPLANT_STEP_PYTHON=$PWD/.stepenv/bin/python
 Without it, STEP is skipped with a clear message; everything else still runs.
 
 ## Verified so far (what was actually run)
-* Unit/integration tests: 35 pass (STEP-with-OCP test runs when `AUTOPLANT_TEST_STEP_PYTHON` is set).
+* Unit/integration tests: 44 pass (STEP-with-OCP test runs when `AUTOPLANT_TEST_STEP_PYTHON` is set).
 * **Public pilot data** (`scripts/fetch_pilot_data.sh`, then `python scripts/run_corpus.py pilot_data`):
   * Equinor DISC example P&ID (12 equipment, 29 piping segments incl. tees and boundary connections): reads, routes, QC passes in <1 s.
   * 100 of 259 public DEXPI example files produce a plant model; **all 100 route completely and pass QC**. The other 159 are
     not plant layouts (instrument/label/audit demos with no equipment or no piping) and are declined with a clear message.
+* Drawings: all 791 isometric sheets for the 100 public P&ID models generate without errors (<2 s each); fabrication breakdown is checked for consistency (cut pieces + fittings = line length; spools sum to line length; no spool over the limit unless flagged).
 * Synthetic scale tests (not real plants): 170 lines on 120 equipment routed in ~50 s with 0 QC errors using the rack.
 * Real browser test of the whole team flow with two users: create project, edit, markup, history, live revision banner.
 * STEP read back with OpenCASCADE: solid count and bounding box match the model; tag names present.
